@@ -1,0 +1,9 @@
+numpy
+pandas
+seaborn
+plotly
+matplotlib
+torch
+torchvision
+torch_geometric
+sortedcontainers
