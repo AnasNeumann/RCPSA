@@ -3,7 +3,7 @@ from torch.nn import Module, Linear, Sequential, ReLU, ModuleList, LayerNorm, Dr
 import torch.functional as F
 from torch_geometric.nn import GATConv, AttentionalAggregation
 from torch_geometric.data import HeteroData
-from conf import O, P, D, R, S
+from conf import O, P, D, R, S, EMBEDDING_DIMENSION, ATTENTION_HEADS, GNN_STACK_SIZE, DROPOUT_RATE
 
 # ==================================================
 # =*= Model file for the HGAT model architecture =*=
@@ -11,11 +11,6 @@ from conf import O, P, D, R, S
 __author__  = "Anas Neumann - anas.neumann@polymtl.ca"
 __version__ = "1.0.0"
 __license__ = "MIT License"
-
-EMBEDDING_DIMENSION: int = 12
-ATTENTION_HEADS: int     = 4
-GNN_STACK_SIZE: int      = 2
-DROPOUT_RATE: float      = 0.1
 
 class HyperGraphGNN(Module):
     def __init__(self, task_features:int, resource_features:int, demand_features:int, d_model:int=EMBEDDING_DIMENSION, num_heads:int=ATTENTION_HEADS, num_layers:int=GNN_STACK_SIZE):
