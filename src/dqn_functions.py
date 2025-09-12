@@ -9,11 +9,11 @@ from torch import Tensor
 from torch_geometric.data import Batch, HeteroData
 from torch_geometric.nn import global_max_pool
 
-from conf import TAU, EPS_END, BATCH_SIZE, EPS_START, GAMMA, O
+from conf import TAU, BATCH_SIZE, TOP_K, GAMMA, O, TEMPERATURE
 
 from src.neural_nets import HyperGraphGNN 
 from src.state import State
-from src.replay_memory import Transition, Memory, ITree
+from src.replay_memory import Memory
 from src.tracker import Tracker
 from src.scheduling_functions import find_feasible_tasks, find_possible_start_day_for_task
 
@@ -90,86 +90,30 @@ def take_step(state: State, action: int):
             new_state.done = True
     return new_state
 
-def multi_strategy_selection(state: State, intensify: bool, policy_net: HyperGraphGNN, memory: ITree, device: Device, current_transition: Transition=None, next_transition_possibly_known: bool=False):
-    possible_actions = find_feasible_tasks(state.tasks, state.scheduled_tasks)
-    if intensify: # First family of strategies: Q-value intensification (try to redo best solution but modify them a bit)
-        if next_transition_possibly_known and random.random() < DQN_ELITISM_RATE: # Selection stategy 1/4: redo a previous action that yielded the highest reward
-            _trs: list[(Transition, any)] = [(memory.search_transition([task["Id"]], current_transition), task) for task in possible_actions]
-            _filtered_trs: list[(Transition, any)] = [(transition, task) for (transition, task) in _trs if transition is not None]
-            if _filtered_trs:
-                _action: list[(Transition, any)] = max(_filtered_trs, key=lambda t: t[0].reward.item())
-                return torch.tensor([[_action[1]["Id"]]], device=device, dtype=torch.long), _action[0], True
-        with torch.no_grad(): # Selection stategy 2/4: trust the DQN and get the highest predicted Q value
-            Q_values = policy_net(Batch.from_data_list([state.graph]).to(device))
-            possible_idx = torch.tensor([action['Id'] for action in possible_actions], device=device)
-            selected_values = Q_values[possible_idx].squeeze(-1)
-            _, index = selected_values.max(0)
-            action = possible_idx[index].item()
-            if next_transition_possibly_known:
-                _trs: list[Transition] = [memory.search_transition([task["Id"]], current_transition) for task in possible_actions]
-                return torch.tensor([[action]], device=device, dtype=torch.long), _trs[index], _trs[index] is not None
-            return torch.tensor([[action]], device=device, dtype=torch.long), None, False
-    else: # Second family of stategies: diversification (try to get unseen branches)
-        if next_transition_possibly_known: # Selection stategy 3/4: try to get a new decision never search before
-            _trs: list[(Transition, any)] = [(memory.search_transition([task["Id"]], current_transition), task) for task in possible_actions]
-            if random.random() < DQN_DIVERSITY_RATE:
-                random.shuffle(_trs)
-                for _t, task in _trs:
-                    if _t is None:
-                        return torch.tensor([[task["Id"]]], device=device, dtype=torch.long), None, False
-            index = random.randrange(len(possible_actions))
-            action = possible_actions[index]["Id"]
-            return torch.tensor([[action]], device=device, dtype=torch.long), _trs[index][0], _trs[index][0] is not None
-        action = random.choice(possible_actions)["Id"] # Section stategy 4/4: random selection of an action
-        return torch.tensor([[action]], device=device, dtype=torch.long), None, False
-
-def select_action(state: State, policy_net: HyperGraphGNN, memory_size: int, steps: int, device: Device, decay: int, memory: ITree=None, current_transition: Transition=None, next_transition_possibly_known: bool=False):
+def select_action(state: State, policy_net: HyperGraphGNN, e: float, greedy: bool, device: Device, memory: Memory=None):
     """
         Select a feasible-only action using the current policy network OR random (when replay memory is still relatively empty)
     """
-    eps_threshold: float = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * steps / decay)
     possible_actions = find_feasible_tasks(state.tasks, state.scheduled_tasks)
-    
-    # First family of strategies: Q-value intensification (try to redo best solution but modify them a bit)
-    if random.random() > eps_threshold and memory_size >= BATCH_SIZE:
-        
-        # Selection stategy 1/4: redo a previous action that yielded the highest reward
-        if next_transition_possibly_known and random.random() < DQN_ELITISM_RATE:
-            _trs: list[(Transition, any)] = [(memory.search_transition([task["Id"]], current_transition), task) for task in possible_actions]
-            _filtered_trs: list[(Transition, any)] = [(transition, task) for (transition, task) in _trs if transition is not None]
-            if _filtered_trs:
-                _action: list[(Transition, any)] = max(_filtered_trs, key=lambda t: t[0].reward.item())
-                return torch.tensor([[_action[1]["Id"]]], device=device, dtype=torch.long), _action[0], True, eps_threshold
-        
-        # Selection stategy 2/4: trust the DQN and get the highest predicted Q value
-        with torch.no_grad():
-            Q_values = policy_net(Batch.from_data_list([state.graph]).to(device))
-            possible_idx = torch.tensor([action['Id'] for action in possible_actions], device=device)
-            selected_values = Q_values[possible_idx].squeeze(-1)
-            _, index = selected_values.max(0)
-            action = possible_idx[index].item()
-            if next_transition_possibly_known:
-                _trs: list[Transition] = [memory.search_transition([task["Id"]], current_transition) for task in possible_actions]
-                return torch.tensor([[action]], device=device, dtype=torch.long), _trs[index], _trs[index] is not None, eps_threshold
-            return torch.tensor([[action]], device=device, dtype=torch.long), None, False, eps_threshold
-   
-    # Second family of stategies: diversification (try to get unseen branches)
+    action: int      = -1
+    if random.random() > e and len(memory.flat_transitions) >= BATCH_SIZE: 
+        with torch.no_grad():                                
+            Q_values: Tensor = policy_net(Batch.from_data_list([state.graph]).to(device))
+            possible_idx     = torch.tensor([action['Id'] for action in possible_actions], device=device)
+            selected_values  = Q_values[possible_idx].squeeze(-1)
+            if greedy:
+                _, index     = selected_values.max(0)
+            else:
+                topk      = min(TOP_K, len(selected_values))                          # robust value     
+                vals, idx = torch.topk(selected_values.view(-1), k=topk)              # largest-Q actions
+                vals      = torch.nan_to_num(vals, nan=-1e9, posinf=1e9, neginf=-1e9) # finite
+                vals      = vals - vals.max()                                         # improves soft‑max stability
+                p         = torch.softmax(vals / TEMPERATURE, dim=0)                  # Boltzmann exploration
+                index     = idx[torch.multinomial(p, 1)].item()
+            action        = possible_idx[index].item()
     else:
-        # Selection stategy 3/4: try to get a new decision never search before
-        if next_transition_possibly_known:
-            _trs: list[(Transition, any)] = [(memory.search_transition([task["Id"]], current_transition), task) for task in possible_actions]
-            if random.random() < DQN_DIVERSITY_RATE:
-                random.shuffle(_trs)
-                for _t, task in _trs:
-                    if _t is None:
-                        return torch.tensor([[task["Id"]]], device=device, dtype=torch.long), None, False, eps_threshold
-            index = random.randrange(len(possible_actions))
-            action = possible_actions[index]["Id"]
-            return torch.tensor([[action]], device=device, dtype=torch.long), _trs[index][0], _trs[index][0] is not None, eps_threshold
-        
-        # Section stategy 4/4: random selection of an action
         action = random.choice(possible_actions)["Id"]
-        return torch.tensor([[action]], device=device, dtype=torch.long), None, False, eps_threshold
+    return torch.tensor([[action]], device=device, dtype=torch.long)
 
 def _build_batch_indices(actions_local_indices: Tensor, nb_tasks :int, batch_size: int):
     graph_offsets: Tensor = torch.arange(batch_size, device=actions_local_indices.device) * nb_tasks

@@ -1,6 +1,9 @@
 import time
 from datetime import datetime
 
+import torch
+from torch import Tensor
+
 # =================================================
 # =*= COMMON TOOLS AND FUNCTIONS OF THE PROJECT =*=
 # =================================================
@@ -20,3 +23,6 @@ def display_final_computing_time(start_time: float, instance: str, path: str, us
     print(f"Execution time: {execution_time} seconds")
     if use_end_stream:
         print_to_endstream(f"\nExecution time: {execution_time} seconds", f"{path}/data/logs/{instance}.{dt_string}.log")
+
+def to_bool(v: str) -> bool:
+    return v.lower() in ['true', 't', 'yes', '1']

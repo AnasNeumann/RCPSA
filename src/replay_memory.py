@@ -70,20 +70,19 @@ class ITree:
                     return t
         return None
 
-    def compute_rewards(self, transition: Transition, lb: int, final_makespan: int) -> Tensor:
-        transition.compute_reward(lb=lb, makespan=final_makespan, device=self.device)
+    def compute_rewards(self, transition: Transition, final_makespan: int) -> Tensor:
+        transition.compute_reward(makespan=final_makespan, device=self.device)
         for _next in transition.next:
-            self.compute_rewards(transition=_next, lb=lb, final_makespan=final_makespan)
+            self.compute_rewards(transition=_next, final_makespan=final_makespan)
 
     def add_or_update_transition(self, transition: Transition, lb: int, final_makespan: int, need_rewards: bool=True) -> Transition:
         if need_rewards:
-            self.compute_rewards(transition=transition, lb=lb, final_makespan=final_makespan)
+            self.compute_rewards(transition=transition, final_makespan=final_makespan)
         if transition.parent is None:
             _found: bool = False
             for _other_first in self.tree_transitions:
                 if _other_first.same(transition):
                     _found = True
-                    _other_first.visits = _other_first.visits + 1
                     _other_first.reward = torch.max(_other_first.reward, transition.reward)
                     _other_first.makespan = min(_other_first.makespan, transition.makespan)
                     for _next in transition.next:
@@ -103,7 +102,6 @@ class ITree:
             for _existing in transition.parent.next:
                 if _existing.same(transition):
                     _found = True
-                    _existing.visits = _existing.visits + 1
                     _existing.reward = torch.max(_existing.reward, transition.reward)
                     _existing.makespan = min(_existing.makespan, transition.makespan)
                     for _next in transition.next:
