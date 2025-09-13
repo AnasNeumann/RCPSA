@@ -84,60 +84,51 @@ class State():
             es = 0 if not t["Predecessors"] else max(EF[p] for p in t["Predecessors"])
             EF[tid] = es + t["Duration"]
         return max(EF.values()) if EF else 0
-
-    def compute_lower_bound(self):
-        lb_cp_cond = self._conditional_precedence_lb()
-        lb_res_rem = self._resource_load_lb_remaining()
-        mk:int     = self.make_span if self.make_span >= 0 and self.make_span != math.inf else 0
-        return max(mk, lb_cp_cond, mk + lb_res_rem)
     
-    def _conditional_precedence_lb(self) -> int:
-        """
-            Precedence-only earliest completion while respecting any fixed Start/Finish
-            for already-scheduled tasks. Ignores resource capacities → valid LB.
-        """
-        tasks = self.tasks
-        task_map = {t["Id"]: t for t in tasks}
-        order = khan_topological_sort(tasks)
-        EF = {}
-        for tid in order:
-            t = task_map[tid]
-            if t.get("Start", 0) > 0 or t.get("Finish", 0) > 0:
-                st = t.get("Start", 0)
-                ft = t.get("Finish", st + t["Duration"])
-                if t["Predecessors"]:
-                    min_es = max(EF[p] for p in t["Predecessors"])
-                    st = max(st, min_es)
-                    ft = st + t["Duration"]
-                EF[tid] = ft
+    def compute_lower_bound(self):
+        durations    = [t["Duration"] for t in self.tasks]
+        predecessors = [t["Predecessors"] for t in self.tasks]
+        successors   = [[] for _ in range(self.n_tasks)]
+        in_degree    = [0] * self.n_tasks
+        dp           = [0] * self.n_tasks
+        for i in range(self.n_tasks):
+            for pred in predecessors[i]:
+                successors[pred].append(i)
+                in_degree[i] += 1
+        queue = deque()
+        for i in range(self.n_tasks):
+            finish_time = self.tasks[i].get("Finish", 0)
+            if finish_time > 0:
+                dp[i] = finish_time
             else:
-                es = 0 if not t["Predecessors"] else max(EF[p] for p in t["Predecessors"])
-                EF[tid] = es + t["Duration"]
-        return max(EF.values()) if EF else self.make_span
-
-    def _resource_load_lb_remaining(self) -> int:
-        """
-            Resource-load LB for remaining (unscheduled) work.
-            For each renewable resource k: ceil( sum_i a[i,k] * p[i] / C[k] ).
-            This lower-bounds the remaining *added* time due to capacity limits.
-        """
-        capacity       = {rid: c for (rid, c) in self.resources}
-        remaining_work = {rid: 0 for rid, _ in self.resources}
-        scheduled      = set(self.scheduled_tasks)
-        for t in self.tasks:
-            if t["Id"] in scheduled:
-                continue
-            p = t["Duration"]
-            for rid, _ in self.resources:
-                demand = t["Resource"].get(str(rid), 0)
-                if demand > 0:
-                    remaining_work[rid] += demand * p
-        lb_list = []
-        for rid, w in remaining_work.items():
-            Ck = max(capacity[rid], 1)
-            lb_list.append(math.ceil(w / Ck))
-        return max(lb_list) if lb_list else 0
-
+                _, possible_end = self.get_possible_dates(
+                    self.tasks,
+                    self.resources,
+                    self.tasks[i],
+                    self.make_span)
+                dp[i] = possible_end
+            if in_degree[i] == 0:
+                queue.append(i)
+        while queue:
+            u = queue.popleft()
+            for v in successors[u]:
+                candidate = dp[u] + durations[v]
+                dp[v] = max(dp[v], candidate)
+                scheduled_finish = self.tasks[v].get("Finish", 0)
+                if scheduled_finish > dp[v]:
+                    dp[v] = scheduled_finish
+                if self.tasks[v].get("Finish", 0) == 0:
+                    _, possible_end = self.get_possible_dates(
+                        self.tasks,
+                        self.resources,
+                        self.tasks[v],
+                        self.make_span)
+                    dp[v] = max(dp[v], possible_end)
+                in_degree[v] -= 1
+                if in_degree[v] == 0:
+                    queue.append(v)
+        return max(dp)
+    
     def _compute_standard_durations(self):
         """
             Durations of tasks measured as a percentage between the min and max duration

@@ -75,7 +75,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                 huber_loss: float = optimize_policy_net(memory=_REPLAY_MEMORY, policy_net=_POLICY_NET, target_net=_TARGET_NET, optimizer=_OPTIMIZER, tracker=_LOSS_TRACKER, nb_tasks=len(_tasks), device=_device)
                 optimize_target_net(policy_net=_POLICY_NET, target_net=_TARGET_NET)
                 if _state.make_span < _best_state.make_span:
-                    _best_state = _state
+                    _best_state   = _state
                     _best_episode = _episode
                     if _state.make_span < _state.lower_bound:
                         _best_state.lower_bound = _state.make_span

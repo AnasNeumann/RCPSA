@@ -5,7 +5,7 @@ __author__  = "Anas Neumann - anas.neumann@polymtl.ca"
 __version__ = "1.0.0"
 __license__ = "MIT License"
 
-INTERACTIVE: bool        = True
+INTERACTIVE: bool        = False
 
 EMBEDDING_DIMENSION: int = 36 # 12
 ATTENTION_HEADS: int     = 4
@@ -26,7 +26,7 @@ GAMMA: float             = 1.0    # discount factor
 TAU: float               = 0.003  # update rate of the target network
 
 W_FINAL:float            = 1.0    # weight of the final makespan in the reward function
-W_NON_FINAL:float        = 0.02   # weight of the non-final makespan in the reward function
+W_NON_FINAL:float        = 0.05   # weight of the non-final makespan in the reward function
 
 O: str = "operation"
 R: str = "resource"
