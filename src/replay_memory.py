@@ -2,7 +2,7 @@ import torch
 from torch import Tensor
 from torch_geometric.data import HeteroData
 from torch._prims_common import DeviceLikeType
-from conf import W_FINAL_MAKESPAN, W_DELTA_MAKESPAN, MEMORY_CAPACITY
+from conf import MEMORY_CAPACITY, W_FINAL, W_NON_FINAL
 
 # ====================================================
 # =*= Model file for GNN tree-shaped replay memory =*=
@@ -41,8 +41,9 @@ class Transition:
         t: Transition
         return self.parent == t.parent and self.action == t.action
     
-    def compute_reward(self, makespan: int, device: DeviceLikeType):
-        r: float = (-1.0) * ((W_FINAL_MAKESPAN*makespan) + (W_DELTA_MAKESPAN*self.delta_duration))
+    def compute_reward(self, makespan: int, device: DeviceLikeType, is_last: bool = False):
+        w: float = W_FINAL if is_last else W_NON_FINAL
+        r: float = (-1.0) * (makespan * w + self.delta_duration)
         self.reward   = torch.tensor([r], device=device)
         self.makespan = makespan
 
@@ -71,7 +72,7 @@ class ITree:
         return None
 
     def compute_rewards(self, transition: Transition, final_makespan: int) -> Tensor:
-        transition.compute_reward(makespan=final_makespan, device=self.device)
+        transition.compute_reward(makespan=final_makespan, device=self.device, is_last=(len(transition.next) == 0))
         for _next in transition.next:
             self.compute_rewards(transition=_next, final_makespan=final_makespan)
 

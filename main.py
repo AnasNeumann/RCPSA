@@ -64,7 +64,8 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
             _next_state: State = take_step(state=_state, action=_action_idx.item())
             _next_state.graph  = _next_state.to_hyper_graph()
             _next_lb: int      = _next_state.compute_lower_bound()
-            _transitions_in_episode.append(Transition(action=_action_idx, previous_graph=_state.graph, graph=_next_state.graph, delta_duration=_next_lb-_prev_lb, parent=_transitions_in_episode[-1] if _transitions_in_episode else None))
+            _delta: int        = _next_lb - _prev_lb
+            _transitions_in_episode.append(Transition(action=_action_idx, previous_graph=_state.graph, graph=_next_state.graph, delta_duration=_delta, parent=_transitions_in_episode[-1] if _transitions_in_episode else None))
             _state             = _next_state
             _prev_lb           = _next_lb
             if _state.done:

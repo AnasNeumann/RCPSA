@@ -145,7 +145,7 @@ def optimize_policy_net(memory: Memory, policy_net: HyperGraphGNN, target_net: H
     loss = criterion(state_action_q_values, expected_state_action_values)
     optimizer.zero_grad()
     loss.backward()
-    torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
+    torch.nn.utils.clip_grad_value_(policy_net.parameters(), 20)
     optimizer.step()
     printed_loss = loss.detach().cpu().item()
     tracker.update(loss_value=printed_loss)

@@ -23,7 +23,7 @@ def compute_earliest_times(tasks: list[int]) -> None:
         Computes the Earliest Start (ES) and Earliest Finish (EF) for each task.
     """
     task_map = {t["Id"]: t for t in tasks}
-    order = _khan_topological_sort(tasks)
+    order = khan_topological_sort(tasks)
     for tid in order:
         task = task_map[tid]
         if task["Predecessors"]:
@@ -38,7 +38,7 @@ def compute_latest_times(tasks: list[int]) -> None:
         Computes the Latest Finish (LF) and Latest Start (LS) times for each task, working backwards from the project finish time.
     """
     task_map = {t["Id"]: t for t in tasks}
-    order = _khan_topological_sort(tasks)
+    order = khan_topological_sort(tasks)
     project_finish = max(t["EF"] for t in tasks if not t["Successors"])
     for tid in reversed(order):
         task = task_map[tid]
@@ -49,7 +49,7 @@ def compute_latest_times(tasks: list[int]) -> None:
         task["LS"] = task["LF"] - task["Duration"]
     return tasks
 
-def _khan_topological_sort(tasks: list[int]) -> list[int]:
+def khan_topological_sort(tasks: list[int]) -> list[int]:
     """
         returns a list of task IDs in a valid execution order according to precedence
     """
