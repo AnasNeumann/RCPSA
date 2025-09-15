@@ -39,7 +39,7 @@ class Transition:
     
     def same(self, t) -> bool:
         t: Transition
-        return self.parent == t.parent and self.action == t.action
+        return self.parent == t.parent and torch.equal(self.action, t.action)
     
     def compute_reward(self, makespan: int, device: DeviceLikeType, is_last: bool = False):
         w: float = W_FINAL if is_last else W_NON_FINAL
@@ -94,8 +94,10 @@ class ITree:
                 self.tree_transitions.append(transition)
                 self.global_memory.add_into_flat_memory(transition)
                 _t: Transition = transition
-                while _t.next:
+                while True:
                     self.global_memory.add_into_flat_memory(_t)
+                    if not _t.next:
+                        break
                     _t = _t.next[0]
                 return transition
         else:
@@ -113,8 +115,10 @@ class ITree:
                 transition.parent.next.append(transition)
                 self.global_memory.add_into_flat_memory(transition)
                 _t: Transition = transition
-                while _t.next:
+                while True:
                     self.global_memory.add_into_flat_memory(_t)
+                    if not _t.next:
+                        break
                     _t = _t.next[0]
                 return transition
 
@@ -133,7 +137,7 @@ class Memory:
         transition.in_memory = True
         self.flat_transitions.append(transition)
         if len(self.flat_transitions) > MEMORY_CAPACITY:
-            _old: Transition = self.flat_transitions.pop()
+            _old: Transition = self.flat_transitions.pop(0)
             _old.in_memory = False
     
     def add_instance_if_new(self, instance_name: str) -> ITree:

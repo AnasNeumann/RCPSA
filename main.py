@@ -77,8 +77,6 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                 if _state.make_span < _best_state.make_span:
                     _best_state   = _state
                     _best_episode = _episode
-                    if _state.make_span < _state.lower_bound:
-                        _best_state.lower_bound = _state.make_span
                 print(f"Episode: {_episode} -- Makespan: {_state.make_span} (best: {_best_state.make_span}) -- Huber Loss: {huber_loss:.2f}")
                 if _episode == NB_EPISODES:
                     print(f"Saving files...")

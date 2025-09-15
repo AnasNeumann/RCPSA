@@ -128,20 +128,21 @@ def optimize_policy_net(memory: Memory, policy_net: HyperGraphGNN, target_net: H
             L(x, y) = 1/2 (x-y)^2 for small errors (|x-y| ≤ δ) else δ|x-y| - 1/2 x δ^2
     """
     _samples_size = min(len(memory.flat_transitions), BATCH_SIZE)
-    sampled_idx: list[int] = random.sample(range(len(memory.flat_transitions)), _samples_size)
-    sampled_transitions: list = [memory.flat_transitions[id] for id in sampled_idx]
+    sampled_idx: list[int]                            = random.sample(range(len(memory.flat_transitions)), _samples_size)
+    sampled_transitions: list                         = [memory.flat_transitions[id] for id in sampled_idx]
     b_actions, b_previous_graphs, b_graphs, b_rewards = zip(*[(t.action, t.previous_graph, t.graph, t.reward) for t in sampled_transitions])
-    graph_batch: HeteroData = Batch.from_data_list(b_previous_graphs).to(device)
-    next_graph_batch: HeteroData = Batch.from_data_list(b_graphs).to(device)
-    action_batch = _build_batch_indices(actions_local_indices=torch.cat(b_actions), nb_tasks=nb_tasks, batch_size=_samples_size) # Shape: [batch_size, 1]
-    reward_batch: Tensor = torch.cat(b_rewards).squeeze(-1) # Shape: [batch_size]
-    state_all_q_values: Tensor = policy_net(graph_batch).squeeze(-1)  # Shape: [num_tasks for all graphs in the batch]
-    state_action_q_values: Tensor = state_all_q_values[action_batch.squeeze(-1)]  # Shape: [batch_size]
+    b_dones: Tensor                                   = torch.tensor([len(t.next) == 0 for t in sampled_transitions], device=device, dtype=torch.float32)
+    graph_batch: HeteroData                           = Batch.from_data_list(b_previous_graphs).to(device)
+    next_graph_batch: HeteroData                      = Batch.from_data_list(b_graphs).to(device)
+    action_batch                                      = _build_batch_indices(actions_local_indices=torch.cat(b_actions), nb_tasks=nb_tasks, batch_size=_samples_size) # Shape: [batch_size, 1]
+    reward_batch: Tensor                              = torch.cat(b_rewards).squeeze(-1)                      # Shape: [batch_size]
+    state_all_q_values: Tensor                        = policy_net(graph_batch).squeeze(-1)                   # Shape: [num_tasks for all graphs in the batch]
+    state_action_q_values: Tensor                     = state_all_q_values[action_batch.squeeze(-1)]          # Shape: [batch_size]
     with torch.no_grad():
-        next_all_q_values: Tensor = target_net(next_graph_batch).squeeze(-1)  # Shape: [num_total_next_tasks]
-    next_state_max_q_values: Tensor = global_max_pool(next_all_q_values, next_graph_batch[O].batch)  # Shape: [num_non_final_states < reward_batch]
-    expected_state_action_values: Tensor = (next_state_max_q_values * GAMMA) + reward_batch
-    criterion = nn.SmoothL1Loss(beta=0.5)
+        next_all_q_values: Tensor            = target_net(next_graph_batch).squeeze(-1)                       # Shape: [num_total_next_tasks]
+        next_state_max_q_values: Tensor      = global_max_pool(next_all_q_values, next_graph_batch[O].batch)  # Shape: [num_non_final_states < reward_batch]
+        expected_state_action_values: Tensor = reward_batch + (1.0 - b_dones) * next_state_max_q_values * GAMMA
+    criterion = nn.SmoothL1Loss(beta=1.0).to(device)
     loss = criterion(state_action_q_values, expected_state_action_values)
     optimizer.zero_grad()
     loss.backward()

@@ -215,7 +215,7 @@ class State():
                 capacity_required: int = task["Resource"].get(str(r_id), 0)
                 if capacity_required > 0:
                     nb_tasks_by_resource[r_id - 1] += 1
-                    executed: bool = i in self.scheduled_tasks
+                    executed: bool = task["Id"] in self.scheduled_tasks
                     if executed:
                         st = task.get("Start", 0)
                         ft = task.get("Finish", 0)
@@ -254,7 +254,7 @@ class State():
         graph[O, D, R].edge_index = torch.tensor([req_src, req_dst], dtype=torch.long)
         graph[O, D, R].edge_attr = torch.tensor(req_attr, dtype=torch.float)
         graph[R, D, O].edge_index = graph[O, D, R].edge_index.flip(0)
-        graph.to(self.device)
+        graph = graph.to(self.device)
         return graph
 
     def display_graph(self):
