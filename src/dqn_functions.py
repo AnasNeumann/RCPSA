@@ -141,7 +141,7 @@ def optimize_policy_net(memory: Memory, policy_net: HyperGraphGNN, target_net: H
         next_all_q_values: Tensor = target_net(next_graph_batch).squeeze(-1)  # Shape: [num_total_next_tasks]
     next_state_max_q_values: Tensor = global_max_pool(next_all_q_values, next_graph_batch[O].batch)  # Shape: [num_non_final_states < reward_batch]
     expected_state_action_values: Tensor = (next_state_max_q_values * GAMMA) + reward_batch
-    criterion = nn.SmoothL1Loss()
+    criterion = nn.SmoothL1Loss(beta=0.5)
     loss = criterion(state_action_q_values, expected_state_action_values)
     optimizer.zero_grad()
     loss.backward()
