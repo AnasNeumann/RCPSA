@@ -119,16 +119,18 @@ def select_actions(state: State, policy_net: HyperGraphGNN, device: Device, C: i
     """
         Select C feasible-only actions using the current policy network
     """
-    feasible = find_feasible_tasks(state.tasks, state.scheduled_tasks)
-    K        = min(C, len(feasible)) # robust value 
-    with torch.no_grad():
-        q_all: Tensor = policy_net(Batch.from_data_list([state.graph]).to(device)).squeeze(-1)        # [num_tasks]
-        feas_ids      = torch.tensor([t['Id'] for t in feasible], device=device, dtype=torch.long)    # [M]
-        q_feas        = q_all[feas_ids]                                                               # [M]
-        _, idx        = torch.topk(q_feas, k=K)                                                       # [K] indices into feas_ids
-        actions       = feas_ids[idx].view(1, -1)                                                     # [1, K] action IDs
-        q_vals        = q_feas[idx].view(1, -1)                                                       # [1, K] Q-values
-    return actions, q_vals
+    possible_actions   = find_feasible_tasks(state.tasks, state.scheduled_tasks)
+    topk               = min(C, len(possible_actions)) # robust value     
+    with torch.no_grad():                                
+        Q_values: Tensor   = policy_net(Batch.from_data_list([state.graph]).to(device))
+        possible_idx       = torch.tensor([action['Id'] for action in possible_actions], device=device)
+        selected_values    = Q_values[possible_idx].squeeze(-1)
+        vals               = torch.nan_to_num(selected_values.view(-1), nan=-1e9, posinf=1e9, neginf=-1e9)
+        vals               = vals - vals.max()       
+        probs              = torch.softmax(vals / TEMPERATURE, dim=0)
+        indices            = torch.multinomial(probs, num_samples=topk, replacement=False)
+        actions: list[int] = [possible_idx[i].item() for i in indices]
+    return torch.tensor([actions], device=device, dtype=torch.long)
 
 def _build_batch_indices(actions_local_indices: Tensor, nb_tasks :int, batch_size: int):
     graph_offsets: Tensor = torch.arange(batch_size, device=actions_local_indices.device) * nb_tasks

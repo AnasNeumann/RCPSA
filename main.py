@@ -9,7 +9,7 @@ import torch
 from torch import Tensor
 from torch.optim import AdamW
 
-from conf import INTERACTIVE, LR, NB_EPISODES, EPS_DECAY, EPS_END, EPS_START, CANDIDATES, INTENSIFY_RATE, GREEDY_RATE, INTENSIFY_INC
+from conf import INTERACTIVE, LR, NB_EPISODES, EPS_DECAY, EPS_END, EPS_START, CANDIDATES, INTENSIFY_RATE, GREEDY_RATE
 from src.common import display_final_computing_time
 from src.state import State
 from src.neural_nets import HyperGraphGNN
@@ -29,22 +29,22 @@ def intensify(state: State, policy_net: HyperGraphGNN, device: torch.device, can
         """
             Explore the search space using e-greedy DQN with limited candidates at each step
         """
-        best_val: float     = -math.inf
+        best_val: float     = math.inf
         best_action: Tensor = None
         if not state.done:
             if candidates > 0:
-                actions, Qvalues = select_actions(state=state, policy_net=policy_net, device=device, C=candidates)
-                for i, candidate in enumerate(actions[0]):
-                    _next_state: State = take_step(state=state, action=candidate.item())
+                _actions: Tensor = select_actions(state=state, policy_net=policy_net, device=device, C=candidates)
+                for cand in _actions[0]:
+                    _next_state: State = take_step(state=state, action=cand.item())
                     _next_state.graph  = _next_state.to_hyper_graph()
-                    val, _             = intensify(state=_next_state, policy_net=policy_net, device=device, candidates=candidates-1) # recursive call with decreased candidates!
-                    Qvalue: float      = Qvalues[0, i].item() + (INTENSIFY_INC * val)
-                    if best_val < Qvalue:
-                        best_val    = Qvalue
-                        best_action = candidate
+                    val, _             = intensify(state=_next_state, policy_net=policy_net,device=device, candidates=candidates-1) # recursive call with decreased candidates!
+                    if best_val > val:
+                        best_val    = val
+                        best_action = cand
                 return best_val, torch.tensor([[best_action.item()]], device=device, dtype=torch.long)
-            return 0, None
-        return (INTENSIFY_INC * -state.make_span), None
+            else:
+                state.compute_lower_bound(), None
+        return state.make_span, None
 
 def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
     """
@@ -80,10 +80,10 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
         _prev_lb: int                             = _lb
         _transitions_in_episode: list[Transition] = []
         for _ in count():
-            if random.random() >= INTENSIFY_RATE: # explore solution with three e-greedy strategies: random, soft greedy (one step), hard greedy (one step)
-                _greedy: bool    = random.random() >= GREEDY_RATE
-                _action_idx: int = select_action(state=_state, policy_net=_POLICY_NET, e=_e, greedy=_greedy, device=_device, memory=_REPLAY_MEMORY)
-            else: # intensify the search with multiple candidates and recursive exploration (only greedy, multiple steps)
+            if random.random() >= INTENSIFY_RATE:
+                _greedy: bool     = random.random() >= GREEDY_RATE
+                _action_idx: int  = select_action(state=_state, policy_net=_POLICY_NET, e=_e, greedy=_greedy, device=_device, memory=_REPLAY_MEMORY)
+            else:
                 _, _action_idx = intensify(state=_state, policy_net=_POLICY_NET, device=_device, candidates=CANDIDATES)                
             _steps            += 1
             _next_state: State = take_step(state=_state, action=_action_idx.item())
@@ -102,7 +102,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                 if _state.make_span < _best_state.make_span:
                     _best_state   = _state
                     _best_episode = _episode
-                print(f"Episode: {_episode} -- Makespan: {_state.make_span} (best: {_best_state.make_span}) -- Diversity rate: {_e:.3f} -- Huber loss: {huber_loss:.2f}")
+                print(f"Episode: {_episode} -- Makespan: {_state.make_span} (best: {_best_state.make_span}) -- Є: {_e:.3f} -- Huber Loss: {huber_loss:.2f}")
                 if _episode == NB_EPISODES:
                     print(f"Saving files...")
                     os.makedirs(os.path.dirname(_saving_path), exist_ok=True)
