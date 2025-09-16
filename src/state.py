@@ -29,7 +29,6 @@ class State():
     def __init__(self, device: Device, p_id: str="", p_make_span: int=0, p_tasks: list=[], p_resources: list=[], p_scheduled_tasks: list=[], std_durations: list = [], lower_bound: int = 0, init_lb: int = 0, indirect_successors: list = [], critical_path: list = [], max_duration: int = 0, build_graph: bool = False):
         self.id: str                   = p_id
         self.device                    = device
-        self.source: str               = "DQN"
         self.done: bool                = False
         self.make_span: int            = p_make_span
         self.reward: int               = -100000

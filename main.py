@@ -6,16 +6,17 @@ import math
 import random
 
 import torch
+from torch import Tensor
 from torch.optim import AdamW
 
-from conf import INTERACTIVE, LR, NB_EPISODES, EPS_DECAY, EPS_END, EPS_START, BATCH_SIZE
+from conf import INTERACTIVE, LR, NB_EPISODES, EPS_DECAY, EPS_END, EPS_START, CANDIDATES, INTENSIFY_RATE, GREEDY_RATE, INTENSIFY_INC
 from src.common import display_final_computing_time
 from src.state import State
 from src.neural_nets import HyperGraphGNN
 from src.replay_memory import Transition, Memory, ITree
 from src.tracker import Tracker
 from src.instance_reader import build_instance
-from src.dqn_functions import take_step, optimize_policy_net, optimize_target_net, select_action
+from src.dqn_functions import take_step, optimize_policy_net, optimize_target_net, select_actions, select_action
 
 # ================================
 # =*= MAIN CODE OF THE PROJECT =*=
@@ -23,6 +24,27 @@ from src.dqn_functions import take_step, optimize_policy_net, optimize_target_ne
 __author__  = "Anas Neumann - anas.neumann@polymtl.ca"
 __version__ = "1.0.0"
 __license__ = "MIT License"
+
+def intensify(state: State, policy_net: HyperGraphGNN, device: torch.device, candidates: int=CANDIDATES) -> tuple[float, Tensor]:
+        """
+            Explore the search space using e-greedy DQN with limited candidates at each step
+        """
+        best_val: float     = -math.inf
+        best_action: Tensor = None
+        if not state.done:
+            if candidates > 0:
+                actions, Qvalues = select_actions(state=state, policy_net=policy_net, device=device, C=candidates)
+                for i, candidate in enumerate(actions[0]):
+                    _next_state: State = take_step(state=state, action=candidate.item())
+                    _next_state.graph  = _next_state.to_hyper_graph()
+                    val, _             = intensify(state=_next_state, policy_net=policy_net, device=device, candidates=candidates-1) # recursive call with decreased candidates!
+                    Qvalue: float      = Qvalues[0, i].item() + (INTENSIFY_INC * val)
+                    if best_val < Qvalue:
+                        best_val    = Qvalue
+                        best_action = candidate
+                return best_val, torch.tensor([[best_action.item()]], device=device, dtype=torch.long)
+            return 0, None
+        return (INTENSIFY_INC * -state.make_span), None
 
 def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
     """
@@ -54,12 +76,15 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
     _lb: int                   = _best_state.lower_bound
     for _episode in range(1, NB_EPISODES+1):
         _e: float                                 = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * _episode / EPS_DECAY)
-        _greedy: bool                             = True if _episode < (0.8 * NB_EPISODES) else random.random() > 0.7
         _state: State                             = State.from_empty_solution(_best_state, _tasks, _resources)
         _prev_lb: int                             = _lb
         _transitions_in_episode: list[Transition] = []
         for _ in count():
-            _action_idx: int   = select_action(state=_state, policy_net=_POLICY_NET, e=_e, greedy=_greedy, device=_device, memory=_REPLAY_MEMORY)
+            if random.random() >= INTENSIFY_RATE: # explore solution with three e-greedy strategies: random, soft greedy (one step), hard greedy (one step)
+                _greedy: bool     = random.random() >= GREEDY_RATE
+                _action_idx: int  = select_action(state=_state, policy_net=_POLICY_NET, e=_e, greedy=_greedy, device=_device, memory=_REPLAY_MEMORY)
+            else: # intensify the search with multiple candidates and recursive exploration (only greedy, multiple steps)
+                _, _action_idx = intensify(state=_state, policy_net=_POLICY_NET, device=_device, candidates=CANDIDATES)                
             _steps            += 1
             _next_state: State = take_step(state=_state, action=_action_idx.item())
             _next_state.graph  = _next_state.to_hyper_graph()
