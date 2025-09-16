@@ -22,8 +22,8 @@ EPS_START: float         = 0.99   # starting value of epsilon
 EPS_END: float           = 0.005  # final value of epsilon
 EPS_DECAY: int           = 250    # controls the rate of exponential decay of epsilon, higher means a slower decay (≈35%)
 
-CANDIDATES: int          = 5      # number of candidate tasks to consider for the model-based planning
-INTENSIFY_RATE: float    = 0.45   # rate of using model-based planning (exploration) instead of the policy network (exploitation)
+CANDIDATES: int          = 2      # number of candidate tasks to consider for the model-based planning
+INTENSIFY_RATE: float    = 0.3    # rate of using model-based planning (exploration) instead of the policy network (exploitation)
 GREEDY_RATE: float       = 0.2    # rate of using greedy action selection instead of stochastic action selection
 INTENSIFY_INC: float     = 1.90   # the more a Q value is near the end of episode, the more it should be trusted!
 

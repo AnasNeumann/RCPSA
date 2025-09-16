@@ -81,8 +81,8 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
         _transitions_in_episode: list[Transition] = []
         for _ in count():
             if random.random() >= INTENSIFY_RATE: # explore solution with three e-greedy strategies: random, soft greedy (one step), hard greedy (one step)
-                _greedy: bool     = random.random() >= GREEDY_RATE
-                _action_idx: int  = select_action(state=_state, policy_net=_POLICY_NET, e=_e, greedy=_greedy, device=_device, memory=_REPLAY_MEMORY)
+                _greedy: bool    = random.random() >= GREEDY_RATE
+                _action_idx: int = select_action(state=_state, policy_net=_POLICY_NET, e=_e, greedy=_greedy, device=_device, memory=_REPLAY_MEMORY)
             else: # intensify the search with multiple candidates and recursive exploration (only greedy, multiple steps)
                 _, _action_idx = intensify(state=_state, policy_net=_POLICY_NET, device=_device, candidates=CANDIDATES)                
             _steps            += 1
@@ -102,7 +102,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                 if _state.make_span < _best_state.make_span:
                     _best_state   = _state
                     _best_episode = _episode
-                print(f"Episode: {_episode} -- Makespan: {_state.make_span} (best: {_best_state.make_span}) -- Huber Loss: {huber_loss:.2f}")
+                print(f"Episode: {_episode} -- Makespan: {_state.make_span} (best: {_best_state.make_span}) -- Diversity rate: {_e:.3f} -- Huber loss: {huber_loss:.2f}")
                 if _episode == NB_EPISODES:
                     print(f"Saving files...")
                     os.makedirs(os.path.dirname(_saving_path), exist_ok=True)
