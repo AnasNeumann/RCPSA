@@ -130,11 +130,12 @@ class Memory:
         self.flat_transitions: list[Transition] = []
 
     def add_into_flat_memory(self, transition: Transition):
-        transition.in_memory = True
-        self.flat_transitions.append(transition)
-        if len(self.flat_transitions) > MEMORY_CAPACITY:
-            _old: Transition = self.flat_transitions.pop(0)
-            _old.in_memory = False
+        if not transition.in_memory:
+            transition.in_memory = True
+            self.flat_transitions.append(transition)
+            if len(self.flat_transitions) > MEMORY_CAPACITY:
+                _old: Transition = self.flat_transitions.pop(0)
+                _old.in_memory = False
     
     def add_instance_if_new(self, instance_name: str) -> ITree:
         for tree in self.instance_trees:

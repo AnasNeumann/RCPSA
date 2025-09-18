@@ -31,7 +31,7 @@ class X:
         self.population_ids                   = set()
 
     def available(self) -> bool:
-        return len(self.population) > 10
+        return len(self.population) > 50
 
     def add(self, solution: State) -> None:
         if solution.id not in self.population_ids:

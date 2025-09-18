@@ -154,6 +154,8 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                 if _X.available():
                     X_solution, feasible, X_transitions = _X.run()
                     if feasible:
+                        lsX_found, X_solution, lsX_transitions = local_search(X_solution, _tasks, _resources, _device)
+                        X_transitions                          = lsX_transitions if lsX_found else X_transitions
                         _TREE.add_or_update_transition(transition=X_transitions[0], final_makespan=X_solution.make_span)
                         _X.add(X_solution)
                         if X_solution.make_span < _best_state.make_span:
