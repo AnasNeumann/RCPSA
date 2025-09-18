@@ -141,7 +141,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                 print(f"DQN Episode: {_episode} -- Makespan: {_state.make_span} (best: {_best_state.make_span}) -- Є: {_e:.3f} -- Huber Loss: {huber_loss:.2f}")
                 
                 # TIME TO RUN LOCAL SEARCH
-                ls_found, ls_solution, ls_transitions = local_search(_state, _tasks, _resources, _device)
+                ls_found, ls_solution, ls_transitions = local_search(_state, _tasks, _resources, _device, force=True)
                 if ls_found:
                     _X.add(ls_solution)
                     _TREE.add_or_update_transition(transition=ls_transitions[0], final_makespan=ls_solution.make_span)
@@ -154,7 +154,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                 if _X.available():
                     X_solution, feasible, X_transitions = _X.run()
                     if feasible:
-                        lsX_found, X_solution, lsX_transitions = local_search(X_solution, _tasks, _resources, _device)
+                        lsX_found, X_solution, lsX_transitions = local_search(X_solution, _tasks, _resources, _device, force=False)
                         X_transitions                          = lsX_transitions if lsX_found else X_transitions
                         _TREE.add_or_update_transition(transition=X_transitions[0], final_makespan=X_solution.make_span)
                         _X.add(X_solution)

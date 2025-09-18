@@ -17,7 +17,7 @@ __author__  = "Anas Neumann - anas.neumann@polymtl.ca"
 __version__ = "1.0.0"
 __license__ = "MIT License"
 
-def local_search(current_solution: State, tasks: list, resources: list, device: Device, max_iterations: int = MAX_ITTRS):
+def local_search(current_solution: State, tasks: list, resources: list, device: Device, max_iterations: int = MAX_ITTRS, force: bool = True) -> tuple[bool, State, list[Transition]]:
     """
         Performs a local search on an RCPSP solution using two neighborhood moves
     """
@@ -50,7 +50,7 @@ def local_search(current_solution: State, tasks: list, resources: list, device: 
             case _:
                 print("Error: Unknown mutation operator")
         current_solution, _feasible, _transitions = _execute_solution(tasks, resources, best_solution, neighbor, device)
-        if _feasible and current_solution.make_span < best_solution.make_span:
+        if _feasible and ((force and current_solution.make_span < best_solution.make_span) or (not force and current_solution.make_span <= best_solution.make_span)):
             found_new_solution = True
             transitions        = _transitions
             best_solution      = current_solution
