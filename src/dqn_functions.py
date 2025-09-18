@@ -1,5 +1,6 @@
 import math
 import random
+from contextlib import nullcontext
 
 import torch
 import torch.nn as nn
@@ -9,7 +10,7 @@ from torch import Tensor
 from torch_geometric.data import Batch, HeteroData
 from torch_geometric.nn import global_max_pool
 
-from conf import TAU, BATCH_SIZE, TOP_K, GAMMA, O, TEMPERATURE, CANDIDATES
+from conf import TAU, BATCH_SIZE, TOP_K, GAMMA, O, TEMPERATURE
 
 from src.neural_nets import HyperGraphGNN 
 from src.state import State
@@ -68,7 +69,7 @@ def ssgs(tasks: list[dict], resources: list[tuple[int, int]], task: dict, ub: in
         task["Finish"] = start_day + task["Duration"] - (not (not (task["Duration"])))
     return task
 
-def take_step(state: State, action: int):
+def take_step(state: State, action: int) -> tuple[State, dict]:
     """
         Take a step in the environment by selecting an action (task) to schedule
     """
@@ -88,16 +89,18 @@ def take_step(state: State, action: int):
         new_state.make_span = max(new_state.make_span, task["Finish"])
         if len(new_state.scheduled_tasks) == len(new_state.tasks):
             new_state.done = True
-    return new_state
+    return new_state, task
 
-def select_action(state: State, policy_net: HyperGraphGNN, e: float, greedy: bool, device: Device, memory: Memory=None):
+mps_amp = (torch.autocast(device_type="mps", dtype=torch.float16) if torch.backends.mps.is_available() else nullcontext())
+
+def select_action(state: State, policy_net: HyperGraphGNN, e: float, greedy: bool, device: Device, memory: Memory=None) -> Tensor:
     """
         Select a feasible-only action using the current policy network OR random (when replay memory is still relatively empty)
     """
     possible_actions = find_feasible_tasks(state.tasks, state.scheduled_tasks)
     action: int      = -1
     if random.random() > e and len(memory.flat_transitions) >= BATCH_SIZE: 
-        with torch.no_grad():                                
+        with torch.inference_mode(), mps_amp:                                
             Q_values: Tensor = policy_net(Batch.from_data_list([state.graph]).to(device))
             possible_idx     = torch.tensor([action['Id'] for action in possible_actions], device=device)
             selected_values  = Q_values[possible_idx].squeeze(-1)
@@ -114,23 +117,6 @@ def select_action(state: State, policy_net: HyperGraphGNN, e: float, greedy: boo
     else:
         action = random.choice(possible_actions)["Id"]
     return torch.tensor([[action]], device=device, dtype=torch.long)
-
-def select_actions(state: State, policy_net: HyperGraphGNN, device: Device, C: int=CANDIDATES):
-    """
-        Select C feasible-only actions using the current policy network
-    """
-    possible_actions   = find_feasible_tasks(state.tasks, state.scheduled_tasks)
-    topk               = min(C, len(possible_actions)) # robust value     
-    with torch.no_grad():                                
-        Q_values: Tensor   = policy_net(Batch.from_data_list([state.graph]).to(device))
-        possible_idx       = torch.tensor([action['Id'] for action in possible_actions], device=device)
-        selected_values    = Q_values[possible_idx].squeeze(-1)
-        vals               = torch.nan_to_num(selected_values.view(-1), nan=-1e9, posinf=1e9, neginf=-1e9)
-        vals               = vals - vals.max()       
-        probs              = torch.softmax(vals / TEMPERATURE, dim=0)
-        indices            = torch.multinomial(probs, num_samples=topk, replacement=False)
-        actions: list[int] = [possible_idx[i].item() for i in indices]
-    return torch.tensor([actions], device=device, dtype=torch.long)
 
 def _build_batch_indices(actions_local_indices: Tensor, nb_tasks :int, batch_size: int):
     graph_offsets: Tensor = torch.arange(batch_size, device=actions_local_indices.device) * nb_tasks
@@ -164,6 +150,7 @@ def optimize_policy_net(memory: Memory, policy_net: HyperGraphGNN, target_net: H
     optimizer.zero_grad()
     loss.backward()
     torch.nn.utils.clip_grad_value_(policy_net.parameters(), 20)
+    torch.nn.utils.clip_grad_norm_(policy_net.parameters(), 2.0)
     optimizer.step()
     printed_loss = loss.detach().cpu().item()
     tracker.update(loss_value=printed_loss)

@@ -2,7 +2,7 @@ import torch
 from torch import Tensor
 from torch_geometric.data import HeteroData
 from torch._prims_common import DeviceLikeType
-from conf import MEMORY_CAPACITY, W_FINAL, W_NON_FINAL
+from conf import MEMORY_CAPACITY, W_FINAL, W_NON_FINAL, W_DURATION
 
 # ====================================================
 # =*= Model file for GNN tree-shaped replay memory =*=
@@ -15,16 +15,18 @@ class Transition:
     """
         One transition in the DRL MEMORY TREE
     """
-    def __init__(self, action: Tensor, previous_graph: HeteroData, graph: HeteroData, delta_duration: int, parent=None):
-        self.action: Tensor = action
-        self.graph: HeteroData = graph
+    def __init__(self, action: Tensor, previous_graph: HeteroData, graph: HeteroData, delta_duration: int, lb: int, delta_lb: int, parent=None):
+        self.action: Tensor             = action
+        self.graph: HeteroData          = graph
+        self.delta_lb: int              = delta_lb
+        self.lb: int                    = lb
         self.previous_graph: HeteroData = previous_graph
-        self.delta_duration: int = delta_duration
-        self.parent: Transition = parent
-        self.in_memory: bool = False
-        self.reward: Tensor = None
-        self.makespan: int = 0
-        self.next: list[Transition] = []
+        self.delta_duration: int        = delta_duration
+        self.parent: Transition         = parent
+        self.in_memory: bool            = False
+        self.reward: Tensor             = None
+        self.makespan: int              = 0
+        self.next: list[Transition]     = []
         if parent is not None and self not in parent.next:
             self.parent.next.append(self)
 
@@ -43,9 +45,10 @@ class Transition:
     
     def compute_reward(self, makespan: int, device: DeviceLikeType, is_last: bool = False):
         w: float = W_FINAL if is_last else W_NON_FINAL
-        r: float = (-1.0) * (makespan * w + self.delta_duration)
+        r: float = (-1.0) * (makespan * w + self.delta_duration * W_DURATION + self.delta_lb)
         self.reward   = torch.tensor([r], device=device)
         self.makespan = makespan
+        self.lb       = min(self.lb, makespan)
 
 class ITree:
     """
@@ -57,18 +60,11 @@ class ITree:
         self.device: DeviceLikeType             = device
         self.global_memory: Memory              = global_memory
 
-    def search_transition(self, actions: list[int], current_transition: Transition = None) -> Transition:
+    def search_transition(self, action: int, current_transition: Transition = None) -> Transition:
         to_test: list[Transition] = self.tree_transitions if current_transition is None else current_transition.next
         for t in to_test:
-            if t.action.item() == actions[0]:
-                actions.pop()
-                if actions:
-                    if t.next:
-                        return self.search_transition(actions, t)
-                    else:
-                        return None
-                else:
-                    return t
+            if t.action.item() == action:
+                return t
         return None
 
     def compute_rewards(self, transition: Transition, final_makespan: int) -> Tensor:
@@ -76,7 +72,7 @@ class ITree:
         for _next in transition.next:
             self.compute_rewards(transition=_next, final_makespan=final_makespan)
 
-    def add_or_update_transition(self, transition: Transition, lb: int, final_makespan: int, need_rewards: bool=True) -> Transition:
+    def add_or_update_transition(self, transition: Transition, final_makespan: int, need_rewards: bool=True) -> Transition:
         if need_rewards:
             self.compute_rewards(transition=transition, final_makespan=final_makespan)
         if transition.parent is None:
@@ -88,7 +84,7 @@ class ITree:
                     _other_first.makespan = min(_other_first.makespan, transition.makespan)
                     for _next in transition.next:
                         _next.parent = _other_first
-                        self.add_or_update_transition(transition=_next, lb=lb, final_makespan=final_makespan, need_rewards=False)
+                        self.add_or_update_transition(transition=_next, final_makespan=final_makespan, need_rewards=False)
                     return _other_first
             if not _found:
                 self.tree_transitions.append(transition)
@@ -109,7 +105,7 @@ class ITree:
                     _existing.makespan = min(_existing.makespan, transition.makespan)
                     for _next in transition.next:
                         _next.parent = _existing
-                        self.add_or_update_transition(transition=_next, lb=lb, final_makespan=final_makespan, need_rewards=False)
+                        self.add_or_update_transition(transition=_next, final_makespan=final_makespan, need_rewards=False)
                     return _existing
             if not _found:
                 transition.parent.next.append(transition)
