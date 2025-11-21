@@ -5,10 +5,10 @@ import torch
 from torch import Tensor
 from torch import device as Device
 
-from src.state import State
-from src.dqn_functions import check_precedence_feasibility, ssgs
-from src.replay_memory import Transition
-from conf import MAX_ITTRS
+from v1.src.state import State
+from v1.src.dqn_functions import check_precedence_feasibility, ssgs
+from v1.src.replay_memory import Transition
+from v1.conf import MAX_ITTRS
 
 # ===================================================
 # =*= Local Search operator adapted to GNN solver =*=

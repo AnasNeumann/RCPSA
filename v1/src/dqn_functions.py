@@ -10,13 +10,13 @@ from torch import Tensor
 from torch_geometric.data import Batch, HeteroData
 from torch_geometric.nn import global_max_pool
 
-from conf import TAU, BATCH_SIZE, TOP_K, GAMMA, O, TEMPERATURE
+from v1.conf import TAU, BATCH_SIZE, TOP_K, GAMMA, O, TEMPERATURE
 
-from src.neural_nets import HyperGraphGNN 
-from src.state import State
-from src.replay_memory import Memory
-from src.tracker import Tracker
-from src.scheduling_functions import find_feasible_tasks, find_possible_start_day_for_task
+from v1.src.neural_nets import HyperGraphGNN 
+from v1.src.state import State
+from v1.src.replay_memory import Memory
+from v1.src.tracker import Tracker
+from v1.src.scheduling_functions import find_feasible_tasks, find_possible_start_day_for_task
 
 # ==========================================================================
 # =*= Reinforcement Learning (DQN) related functions only for GNN solver =*=

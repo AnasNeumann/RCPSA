@@ -10,9 +10,9 @@ from torch import device as Device
 from torch_geometric.data import HeteroData
 from torch_geometric.utils import to_networkx
 
-from conf import O, P, D, R, S
-from src.scheduling_functions import find_possible_start_day_for_task
-from src.instance_reader import khan_topological_sort
+from v1.conf import O, P, D, R, S
+from v1.src.scheduling_functions import find_possible_start_day_for_task
+from v1.src.instance_reader import khan_topological_sort
 
 # ===========================================
 # =*= Model file for an Hyper-Graph State =*=
@@ -187,7 +187,7 @@ class State():
 
         # 1. Operation nodes
         op_features: list = []
-        for i, task in enumerate(self.tasks):
+        for i, task in enumerate(self.tasks):s
             if task["Duration"] > 0:
                 start_step: int = self.scheduled_tasks.index(i) if i in self.scheduled_tasks else -1
                 remaining_duration: float = max(0, task["Duration"] - self.make_span + start_step) / task["Duration"] if start_step >= 0 else 1.0

@@ -2,7 +2,8 @@ import torch
 from torch import Tensor
 from torch_geometric.data import HeteroData
 from torch._prims_common import DeviceLikeType
-from conf import MEMORY_CAPACITY, W_FINAL, W_NON_FINAL, W_DURATION
+
+from v1.conf import MEMORY_CAPACITY, W_FINAL, W_NON_FINAL, W_DURATION
 
 # ====================================================
 # =*= Model file for GNN tree-shaped replay memory =*=

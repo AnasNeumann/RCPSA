@@ -2,7 +2,8 @@ import torch
 from torch.nn import Module, Linear, Sequential, ReLU, ModuleList, LayerNorm, Dropout
 from torch_geometric.nn import GATConv, AttentionalAggregation
 from torch_geometric.data import HeteroData
-from conf import O, P, D, R, S, EMBEDDING_DIMENSION, ATTENTION_HEADS, GNN_STACK_SIZE, DROPOUT_RATE
+
+from v1.conf import O, P, D, R, S, EMBEDDING_DIMENSION, ATTENTION_HEADS, GNN_STACK_SIZE, DROPOUT_RATE
 
 # ==================================================
 # =*= Model file for the HGAT model architecture =*=
