@@ -26,7 +26,7 @@ class State():
     RESOURCE_FEATURES: int = 2
     DEMAND_FEATURES: int   = 1
 
-    def __init__(self, device: Device, p_id: str="", p_make_span: int=0, p_tasks: list=[], p_resources: list=[], p_scheduled_tasks: list=[], std_durations: list = [], lower_bound: int = 0, init_lb: int = 0, indirect_successors: list = [], critical_path: list = [], max_duration: int = 0, build_graph: bool = False):
+    def __init__(self, device: Device, p_id: str="", p_make_span: int=0, p_tasks: list=[], p_resources: list=[], p_scheduled_tasks: list=[], std_durations: list = [], lower_bound: int = 0, init_lb: int = 0, upper_bound: int = 0, init_ub: int = 0, indirect_successors: list = [], critical_path: list = [], max_duration: int = 0, build_graph: bool = False):
         self.id: str                   = p_id
         self.device                    = device
         self.done: bool                = False
@@ -45,20 +45,22 @@ class State():
         else:
             self.std_durations, self.max_duration = self._compute_standard_durations()
         self.lower_bound       = lower_bound if lower_bound > 0 else self.compute_lower_bound()
-        self.init_lb  = init_lb if init_lb > 0 else self._precedence_only_critical_path()
+        self.upper_bound       = upper_bound if lower_bound > 0 else self.compute_upper_bound()
+        self.init_lb           = init_lb if init_lb > 0 else self.lower_bound
+        self.init_ub           = init_ub if init_ub > 0 else self.upper_bound
         self.graph: HeteroData = self.to_hyper_graph() if build_graph else None
 
     @classmethod
     def from_partial_solution(cls, s, build_graph: bool = False):
-        return State(device=s.device, p_id=s.id, p_make_span=s.make_span, p_tasks=s.tasks, p_resources=s.resources, p_scheduled_tasks=s.scheduled_tasks, std_durations=s.std_durations, lower_bound=s.lower_bound, init_lb=s.init_lb, indirect_successors=s.indirect_successors, critical_path=s.critical_path, max_duration=s.max_duration, build_graph=build_graph)
+        return State(device=s.device, p_id=s.id, p_make_span=s.make_span, p_tasks=s.tasks, p_resources=s.resources, p_scheduled_tasks=s.scheduled_tasks, std_durations=s.std_durations, lower_bound=s.lower_bound, init_lb=s.init_lb, upper_bound=s.upper_bound, init_ub=s.init_ub, indirect_successors=s.indirect_successors, critical_path=s.critical_path, max_duration=s.max_duration, build_graph=build_graph)
 
     @classmethod
     def from_problem(cls, tasks: list, resources: list, device: Device, makespan: int = math.inf):
-        return State(device=device, p_id="", p_make_span=makespan, p_tasks=tasks, p_resources=resources, p_scheduled_tasks=[], std_durations=[], lower_bound=0, init_lb=0, indirect_successors=[], critical_path=[], max_duration=0, build_graph=True)
+        return State(device=device, p_id="", p_make_span=makespan, p_tasks=tasks, p_resources=resources, p_scheduled_tasks=[], std_durations=[], lower_bound=0, init_lb=0, upper_bound=0, init_ub=0, indirect_successors=[], critical_path=[], max_duration=0, build_graph=True)
 
     @classmethod
     def from_empty_solution(cls, s, tasks: list, resources: list):
-        return State(device=s.device, p_id=s.id, p_make_span=0, p_tasks=tasks, p_resources=resources, p_scheduled_tasks=[], std_durations=s.std_durations, lower_bound=s.lower_bound, init_lb=s.init_lb, indirect_successors=s.indirect_successors, critical_path=s.critical_path, max_duration=s.max_duration, build_graph=True)
+        return State(device=s.device, p_id=s.id, p_make_span=0, p_tasks=tasks, p_resources=resources, p_scheduled_tasks=[], std_durations=s.std_durations, lower_bound=s.lower_bound, init_lb=s.init_lb, upper_bound=s.upper_bound, init_ub=s.init_ub, indirect_successors=s.indirect_successors, critical_path=s.critical_path, max_duration=s.max_duration, build_graph=True)
     
     def get_possible_dates(self, tasks: list[dict], resources: list[tuple[int, int]], task: dict, ub: int) -> dict:
         """
@@ -127,6 +129,44 @@ class State():
                 if in_degree[v] == 0:
                     queue.append(v)
         return max(dp)
+
+    def compute_upper_bound(self, priority: str = "slack") -> int:
+        """
+            Compute a feasible upper bound on the makespan using a serial schedule
+            generation scheme from the current partial schedule.
+        """
+        tasks = copy.deepcopy(self.tasks)
+        scheduled = set(self.scheduled_tasks)
+        ub = max((t.get("Finish", 0) for t in tasks), default=0)
+        horizon = ub + sum(t["Duration"] for t in tasks if t["Id"] not in scheduled)
+        horizon = max(horizon, ub + 1)  # ensure search window is non-zero
+
+        while len(scheduled) < self.n_tasks:
+            feasible = [t for t in tasks if t["Id"] not in scheduled and all(p in scheduled for p in t["Predecessors"])]
+            if not feasible:
+                break
+
+            if priority == "duration":
+                feasible.sort(key=lambda t: (-t["Duration"], t["ES"]))
+            elif priority == "successors":
+                feasible.sort(key=lambda t: (-len(t["Successors"]), -t["Duration"]))
+            else:  # default: schedule the most critical (smallest slack) first
+                feasible.sort(key=lambda t: (t["LS"] - t["ES"], -t["Duration"]))
+
+            task = feasible[0]
+            start, finish = self.get_possible_dates(tasks, self.resources, task, horizon)
+            if start < 0:
+                horizon += task["Duration"]
+                start, finish = self.get_possible_dates(tasks, self.resources, task, horizon)
+                if start < 0:
+                    return horizon
+
+            task["Start"] = start
+            task["Finish"] = finish
+            scheduled.add(task["Id"])
+            ub = max(ub, finish)
+
+        return ub
     
     def _compute_standard_durations(self):
         """
@@ -187,19 +227,20 @@ class State():
 
         # 1. Operation nodes
         op_features: list = []
+        mean_duration: float = (self.init_lb + self.init_ub) / 2.0
         for i, task in enumerate(self.tasks):
             if task["Duration"] > 0:
                 start_step: int = self.scheduled_tasks.index(i) if i in self.scheduled_tasks else -1
                 remaining_duration: float = max(0, task["Duration"] - self.make_span + start_step) / task["Duration"] if start_step >= 0 else 1.0
-                op_features.append([float(self.std_durations[i]),                            # 1. duration as non-zero percentage of max duration
-                                    float(task["ES"] / self.init_lb),                        # 2. earliest start time as percentage of lower bound
-                                    float(task["LS"] / self.init_lb),                        # 3. latest start time as percentage of lower bound
-                                    float(task["EF"] / self.init_lb),                        # 4. earliest finish time as percentage of lower bound
-                                    float(1.0 if task["Id"] in self.critical_path else 0.0), # 5. is the task part of the critical path or not?
-                                    float(remaining_duration),                               # 6. remaining duration as percentage of task duration
-                                    float(task.get("Start", 0.0) / self.init_lb),            # 7. start time as percentage of lower bound
-                                    float(task.get("Finish", 0.0) / self.init_lb),           # 8. end time as percentage of lower bound
-                                    float(self.indirect_successors[i] / self.n_tasks)])      # 9. number of indirect successors as percentage of total tasks
+                op_features.append([float(self.std_durations[i]),                             # 1. duration as non-zero percentage of max duration
+                                    float(task["ES"] / mean_duration),                        # 2. earliest start time as percentage of lower bound
+                                    float(task["LS"] / mean_duration),                        # 3. latest start time as percentage of lower bound
+                                    float(task["EF"] / mean_duration),                        # 4. earliest finish time as percentage of lower bound
+                                    float(1.0 if task["Id"] in self.critical_path else 0.0),  # 5. is the task part of the critical path or not?
+                                    float(remaining_duration),                                # 6. remaining duration as percentage of task duration
+                                    float(task.get("Start", 0.0) / mean_duration),            # 7. start time as percentage of lower bound
+                                    float(task.get("Finish", 0.0) / mean_duration),           # 8. end time as percentage of lower bound
+                                    float(self.indirect_successors[i] / self.n_tasks)])       # 9. number of indirect successors as percentage of total tasks
             else:
                 op_features.append([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         graph[O].x = torch.tensor(op_features, dtype=torch.float)

@@ -40,17 +40,20 @@ def diversify(state: State, memory: ITree, t: Transition, device: str, alpha: fl
         if _next_t is None:
             _next_state, _ = take_step(state=state, action=a)
             lb: int        = _next_state.compute_lower_bound()
-            unseen.append((a, lb))
+            ub: int        = _next_state.compute_upper_bound()
+            unseen.append((a, lb, ub))
     if unseen:
         unseen   = unseen[:min(TOP_K, len(unseen))]
-        lbs      = np.array([lb for _, lb in unseen], dtype=float)
-        norm_lbs = (lbs - lbs.min()) / (lbs.max() - lbs.min() + 1e-9)
-        w        = np.exp(-alpha * norm_lbs)
+        lbs      = np.array([lb for _, lb, _ in unseen], dtype=float)
+        ubs      = np.array([ub for _, _, ub in unseen], dtype=float)
+        quality  = (lbs + ubs) / 2.0
+        norm_q = (quality - quality.min()) / (quality.max() - quality.min() + 1e-9)
+        w        = np.exp(-alpha * norm_q)
         p        = w / w.sum()
         idx      = np.random.choice(len(unseen), p=p)
         action   = unseen[idx][0]
-        return torch.tensor([[action]], device=device, dtype=torch.long)
-    return torch.tensor([[random.choice(possible_actions)]], device=device, dtype=torch.long)
+        return torch.tensor([[action]], device=device, dtype=torch.long), False
+    return None, True
 
 def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
     """
@@ -79,32 +82,39 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
     torch.compile(_POLICY_NET)
     torch.compile(_TARGET_NET)
     _OPTIMIZER: AdamW          = AdamW(_POLICY_NET.parameters(), lr=LR, amsgrad=True)
-    _lb: int                   = _best_state.lower_bound
     for _episode in range(1, NB_EPISODES+1):
         _e: float                                 = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * _episode / EPS_DECAY)
         _state: State                             = State.from_empty_solution(_best_state, _tasks, _resources)
-        _prev_lb: int                             = _lb
+        _prev_lb: int                             = _best_state.init_lb
+        _prev_ub: int                             = _best_state.init_ub
         _transitions_in_episode: list[Transition] = []
         _transition: Transition    = None
         _search_transition: bool   = True
         diversified_step: int = random.randint(0, len(_tasks)-1)
         for step in count():
-            if not _search_transition or step != diversified_step:
-                _action_idx: Tensor  = select_action(state=_state, policy_net=_POLICY_NET, e=_e, greedy=(random.random() >= GREEDY_RATE), device=_device, memory=_REPLAY_MEMORY)
-            else:
-                _action_idx: Tensor  = diversify(state=_state, memory=_TREE, t=_transition, device=_device)
+            should_diversify: bool = _search_transition and (step == diversified_step)
+            if should_diversify:
+                _action_idx, failed = diversify(state=_state, memory=_TREE, t=_transition, device=_device)
+                if failed:
+                    should_diversify = False
+                    step += 1
+            if not should_diversify:
+                _action_idx: Tensor = select_action(state=_state, policy_net=_POLICY_NET, e=_e, greedy=(random.random() >= GREEDY_RATE), device=_device, memory=_REPLAY_MEMORY)
             if _search_transition:
                 _transition        = _TREE.search_transition(action=_action_idx.item(), current_transition=_transition)
                 _search_transition = _transition is not None
-            _steps            += 1
-            _next_state, task  = take_step(state=_state, action=_action_idx.item())
-            _next_state.graph  = _next_state.to_hyper_graph()
-            _next_lb: int      = _next_state.compute_lower_bound()
-            _delta_LB: int     = _next_lb - _prev_lb
-            _delta_duration: int = max(0, _next_state.make_span - _state.make_span + task["Duration"])
-            _transitions_in_episode.append(Transition(action=_action_idx, previous_graph=_state.graph, graph=_next_state.graph, lb=_next_lb, delta_lb=_delta_LB, delta_duration=_delta_duration, parent=_transitions_in_episode[-1] if _transitions_in_episode else None))
-            _state             = _next_state
-            _prev_lb           = _next_lb
+            _steps                += 1
+            _next_state, task      = take_step(state=_state, action=_action_idx.item())
+            _next_state.graph      = _next_state.to_hyper_graph()
+            _next_lb: int          = _next_state.compute_lower_bound()
+            _next_ub: int          = _next_state.compute_upper_bound()
+            _delta_LB: int         = _next_lb - _prev_lb
+            _delta_UB: int         = _next_ub - _prev_ub
+            _delta_duration: int   = max(0, _next_state.make_span - _state.make_span + task["Duration"])
+            _transitions_in_episode.append(Transition(action=_action_idx, previous_graph=_state.graph, graph=_next_state.graph, lb=_next_lb, delta_lb=_delta_LB, ub=_next_ub, dela_ub=_delta_UB, delta_duration=_delta_duration, parent=_transitions_in_episode[-1] if _transitions_in_episode else None))
+            _state                 = _next_state
+            _prev_lb               = _next_lb
+            _prev_ub               = _next_ub
 
             # END OF EPISODE
             if _state.done:

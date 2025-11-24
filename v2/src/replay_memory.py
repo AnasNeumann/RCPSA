@@ -3,7 +3,7 @@ from torch import Tensor
 from torch_geometric.data import HeteroData
 from torch._prims_common import DeviceLikeType
 
-from v2.conf import MEMORY_CAPACITY, W_FINAL, W_NON_FINAL
+from v2.conf import MEMORY_CAPACITY, W_UB, W_LB, W_FINAL
 
 # ====================================================
 # =*= Model file for GNN tree-shaped replay memory =*=
@@ -16,10 +16,12 @@ class Transition:
     """
         One transition in the DRL MEMORY TREE
     """
-    def __init__(self, action: Tensor, previous_graph: HeteroData, graph: HeteroData, delta_duration: int, lb: int, delta_lb: int, parent=None):
+    def __init__(self, action: Tensor, previous_graph: HeteroData, graph: HeteroData, delta_duration: int, lb: int, ub: int, delta_lb: int, dela_ub :int, parent=None):
         self.action: Tensor             = action
         self.graph: HeteroData          = graph
         self.delta_lb: int              = delta_lb
+        self.delta_ub: int              = dela_ub
+        self.ub: int                    = ub
         self.lb: int                    = lb
         self.previous_graph: HeteroData = previous_graph
         self.delta_duration: int        = delta_duration
@@ -44,13 +46,13 @@ class Transition:
         t: Transition
         return self.parent == t.parent and torch.equal(self.action, t.action)
     
-    def compute_reward(self, makespan: int, device: DeviceLikeType, is_last: bool = False):
-        w: float = W_FINAL if is_last else W_NON_FINAL
-        r: float = (-1.0) * (makespan * w + self.delta_lb)
+    def compute_reward(self, makespan: int, device: DeviceLikeType):
+        r: float = (-1.0) * (makespan * W_FINAL + self.delta_lb * W_LB + self.delta_ub * W_UB)
         self.reward   = torch.tensor([r], device=device)
         self.makespan = makespan
         self.lb       = min(self.lb, makespan)
-        print(r)
+        self.ub       = max(self.ub, makespan)
+        print(f"Computed reward: {self.reward.item()} for makespan: {makespan} (LB: {self.lb}, UB: {self.ub})")
 
 class ITree:
     """
@@ -70,7 +72,7 @@ class ITree:
         return None
 
     def compute_rewards(self, transition: Transition, final_makespan: int) -> Tensor:
-        transition.compute_reward(makespan=final_makespan, device=self.device, is_last=(len(transition.next) == 0))
+        transition.compute_reward(makespan=final_makespan, device=self.device)
         for _next in transition.next:
             self.compute_rewards(transition=_next, final_makespan=final_makespan)
 

@@ -27,8 +27,9 @@ GREEDY_RATE: float       = 0.3    # rate of using greedy action selection instea
 GAMMA: float             = 1.0    # discount factor
 TAU: float               = 0.003  # update rate of the target network
 
-W_FINAL:float            = 0.25    # weight of the final makespan in the reward function
-W_NON_FINAL:float        = 0.25    # weight of the non-final makespan in the reward function
+W_LB: float              = 0.35    
+W_UB: float              = 0.35
+W_FINAL: float           = 0.30
 
 O: str = "operation"
 R: str = "resource"
