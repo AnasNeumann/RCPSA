@@ -10,9 +10,9 @@ from torch import device as Device
 from torch_geometric.data import HeteroData
 from torch_geometric.utils import to_networkx
 
-from v1.conf import O, P, D, R, S
-from v1.src.scheduling_functions import find_possible_start_day_for_task
-from v1.src.instance_reader import khan_topological_sort
+from v2.conf import O, P, D, R, S
+from v2.src.scheduling_functions import find_possible_start_day_for_task
+from v2.src.instance_reader import khan_topological_sort
 
 # ===========================================
 # =*= Model file for an Hyper-Graph State =*=
