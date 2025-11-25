@@ -16,19 +16,21 @@ class Transition:
     """
         One transition in the DRL MEMORY TREE
     """
-    def __init__(self, action: Tensor, previous_graph: HeteroData, graph: HeteroData, delta_duration: int, lb: int, ub: int, delta_lb: int, dela_ub :int, parent=None):
+    def __init__(self, action: Tensor, previous_graph: HeteroData, graph: HeteroData, delta_duration: int, lb: int, ub: int, delta_lb: int, delta_ub :int, parent=None):
         self.action: Tensor             = action
-        self.graph: HeteroData          = graph
+        self.graph: HeteroData          = graph.clone().to('cpu')
         self.delta_lb: int              = delta_lb
-        self.delta_ub: int              = dela_ub
+        self.delta_ub: int              = delta_ub
         self.ub: int                    = ub
         self.lb: int                    = lb
-        self.previous_graph: HeteroData = previous_graph
+        self.previous_graph: HeteroData = previous_graph.clone().to('cpu')
         self.delta_duration: int        = delta_duration
         self.parent: Transition         = parent
         self.in_memory: bool            = False
         self.reward: Tensor             = None
         self.makespan: int              = 0
+        self.nb_visits: int             = 1
+        self.makespans: list[int]       = []
         self.next: list[Transition]     = []
         if parent is not None and self not in parent.next:
             self.parent.next.append(self)
@@ -42,16 +44,24 @@ class Transition:
             return 1 + max(depth_children)
         return 1
     
-    def same(self, t) -> bool:
+    def same(self, t: 'Transition') -> bool:
         t: Transition
         return self.parent == t.parent and torch.equal(self.action, t.action)
     
     def compute_reward(self, makespan: int, device: DeviceLikeType):
-        r: float = (-1.0) * ((makespan * W_FINAL) + (self.delta_lb * W_LB) + (self.delta_ub * W_UB))
-        self.reward   = torch.tensor([r], device=device)
-        self.makespan = makespan
-        self.lb       = min(self.lb, makespan)
-        self.ub       = max(self.ub, makespan)
+        r: float       = (-1.0) * ((makespan * W_FINAL) + (self.delta_lb * W_LB) + (self.delta_ub * W_UB))
+        self.reward    = torch.tensor([r], device=device)
+        self.makespan  = makespan
+        self.lb        = min(self.lb, makespan)
+        self.ub        = max(self.ub, makespan)
+        self.nb_visits = 1
+        self.makespans.append(makespan)
+
+    def revisit(self, t: 'Transition'):
+        self.reward     = torch.max(self.reward, t.reward)
+        self.makespan   = min(self.makespan, t.makespan)
+        self.nb_visits += 1
+        self.makespans.append(t.makespan)
 
 class ITree:
     """
@@ -83,8 +93,7 @@ class ITree:
             for _other_first in self.tree_transitions:
                 if _other_first.same(transition):
                     _found = True
-                    _other_first.reward = torch.max(_other_first.reward, transition.reward)
-                    _other_first.makespan = min(_other_first.makespan, transition.makespan)
+                    _other_first.revisit(transition)
                     for _next in transition.next:
                         _next.parent = _other_first
                         self.add_or_update_transition(transition=_next, final_makespan=final_makespan, need_rewards=False)
@@ -104,8 +113,7 @@ class ITree:
             for _existing in transition.parent.next:
                 if _existing.same(transition):
                     _found = True
-                    _existing.reward = torch.max(_existing.reward, transition.reward)
-                    _existing.makespan = min(_existing.makespan, transition.makespan)
+                    _existing.revisit(transition)
                     for _next in transition.next:
                         _next.parent = _existing
                         self.add_or_update_transition(transition=_next, final_makespan=final_makespan, need_rewards=False)

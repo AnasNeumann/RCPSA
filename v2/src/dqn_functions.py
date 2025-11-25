@@ -73,7 +73,7 @@ def take_step(state: State, action: int) -> tuple[State, dict]:
     """
         Take a step in the environment by selecting an action (task) to schedule
     """
-    new_state: State = State.from_partial_solution(state, build_graph=False)
+    new_state: State = State.from_partial_solution(state)
     try:
         task = [t for t in new_state.tasks if t["Id"] == action][0]
     except:
@@ -93,11 +93,10 @@ def take_step(state: State, action: int) -> tuple[State, dict]:
 
 mps_amp = (torch.autocast(device_type="mps", dtype=torch.float16) if torch.backends.mps.is_available() else nullcontext())
 
-def select_action(state: State, policy_net: HyperGraphGNN, e: float, greedy: bool, device: Device, memory: Memory=None) -> Tensor:
+def select_action(state: State, policy_net: HyperGraphGNN, e: float, greedy: bool, possible_actions: list[dict], device: Device, memory: Memory=None) -> Tensor:
     """
         Select a feasible-only action using the current policy network OR random (when replay memory is still relatively empty)
     """
-    possible_actions = find_feasible_tasks(state.tasks, state.scheduled_tasks)
     action: int      = -1
     if random.random() > e and len(memory.flat_transitions) >= BATCH_SIZE: 
         with torch.inference_mode(), mps_amp:                                

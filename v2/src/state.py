@@ -4,6 +4,7 @@ import copy
 import math
 from collections import deque
 import networkx as nx
+import numpy as np
 
 import torch
 from torch import device as Device
@@ -13,6 +14,7 @@ from torch_geometric.utils import to_networkx
 from v2.conf import O, P, D, R, S
 from v2.src.scheduling_functions import find_possible_start_day_for_task
 from v2.src.instance_reader import khan_topological_sort
+from v2.src.replay_memory import Transition
 
 # ===========================================
 # =*= Model file for an Hyper-Graph State =*=
@@ -22,11 +24,11 @@ __version__ = "1.0.0"
 __license__ = "MIT License"
 
 class State():
-    TASK_FEATURES: int     = 10
+    TASK_FEATURES: int     = 17
     RESOURCE_FEATURES: int = 2
     DEMAND_FEATURES: int   = 1
 
-    def __init__(self, device: Device, p_id: str="", p_make_span: int=0, p_tasks: list=[], p_resources: list=[], p_scheduled_tasks: list=[], std_durations: list = [], lower_bound: int = 0, init_lb: int = 0, upper_bound: int = 0, init_ub: int = 0, indirect_successors: list = [], critical_path: list = [], max_duration: int = 0, build_graph: bool = False):
+    def __init__(self, device: Device, p_id: str="", p_make_span: int=0, p_tasks: list=[], p_resources: list=[], p_scheduled_tasks: list=[], std_durations: list = [], lower_bound: int = 0, init_lb: int = 0, upper_bound: int = 0, init_ub: int = 0, indirect_successors: list = [], critical_path: list = [], max_duration: int = 0):
         self.id: str                   = p_id
         self.device                    = device
         self.done: bool                = False
@@ -48,19 +50,19 @@ class State():
         self.upper_bound       = upper_bound if lower_bound > 0 else self.compute_upper_bound()
         self.init_lb           = init_lb if init_lb > 0 else self.lower_bound
         self.init_ub           = init_ub if init_ub > 0 else self.upper_bound
-        self.graph: HeteroData = self.to_hyper_graph() if build_graph else None
+        self.graph: HeteroData = None
 
     @classmethod
-    def from_partial_solution(cls, s, build_graph: bool = False):
-        return State(device=s.device, p_id=s.id, p_make_span=s.make_span, p_tasks=s.tasks, p_resources=s.resources, p_scheduled_tasks=s.scheduled_tasks, std_durations=s.std_durations, lower_bound=s.lower_bound, init_lb=s.init_lb, upper_bound=s.upper_bound, init_ub=s.init_ub, indirect_successors=s.indirect_successors, critical_path=s.critical_path, max_duration=s.max_duration, build_graph=build_graph)
+    def from_partial_solution(cls, s):
+        return State(device=s.device, p_id=s.id, p_make_span=s.make_span, p_tasks=s.tasks, p_resources=s.resources, p_scheduled_tasks=s.scheduled_tasks, std_durations=s.std_durations, lower_bound=s.lower_bound, init_lb=s.init_lb, upper_bound=s.upper_bound, init_ub=s.init_ub, indirect_successors=s.indirect_successors, critical_path=s.critical_path, max_duration=s.max_duration)
 
     @classmethod
     def from_problem(cls, tasks: list, resources: list, device: Device, makespan: int = math.inf):
-        return State(device=device, p_id="", p_make_span=makespan, p_tasks=tasks, p_resources=resources, p_scheduled_tasks=[], std_durations=[], lower_bound=0, init_lb=0, upper_bound=0, init_ub=0, indirect_successors=[], critical_path=[], max_duration=0, build_graph=True)
+        return State(device=device, p_id="", p_make_span=makespan, p_tasks=tasks, p_resources=resources, p_scheduled_tasks=[], std_durations=[], lower_bound=0, init_lb=0, upper_bound=0, init_ub=0, indirect_successors=[], critical_path=[], max_duration=0)
 
     @classmethod
     def from_empty_solution(cls, s, tasks: list, resources: list):
-        return State(device=s.device, p_id=s.id, p_make_span=0, p_tasks=tasks, p_resources=resources, p_scheduled_tasks=[], std_durations=s.std_durations, lower_bound=s.lower_bound, init_lb=s.init_lb, upper_bound=s.upper_bound, init_ub=s.init_ub, indirect_successors=s.indirect_successors, critical_path=s.critical_path, max_duration=s.max_duration, build_graph=True)
+        return State(device=s.device, p_id=s.id, p_make_span=0, p_tasks=tasks, p_resources=resources, p_scheduled_tasks=[], std_durations=s.std_durations, lower_bound=s.lower_bound, init_lb=s.init_lb, upper_bound=s.upper_bound, init_ub=s.init_ub, indirect_successors=s.indirect_successors, critical_path=s.critical_path, max_duration=s.max_duration)
     
     def get_possible_dates(self, tasks: list[dict], resources: list[tuple[int, int]], task: dict, ub: int) -> dict:
         """
@@ -219,7 +221,7 @@ class State():
                     return cp
         return []
     
-    def to_hyper_graph(self) -> HeteroData:
+    def to_hyper_graph(self, possible_actions: list[dict], transitions: list[Transition] = []) -> HeteroData:
         """
             Convert the state to a hypergraph representation
         """
@@ -227,23 +229,41 @@ class State():
 
         # 1. Operation nodes
         op_features: list = []
-        mean_duration: float = (self.init_lb + self.init_ub) / 2.0
         for i, task in enumerate(self.tasks):
             if task["Duration"] > 0:
+                past_vector: list = [0.0 for _ in range(6)]
+                if transitions:
+                    for transition in transitions:
+                        if transition.action.item() == task["Id"]:
+                            cmaxs = np.array(transition.makespans)
+                            past_vector = [
+                                float(np.min(cmaxs)/ self.init_ub),
+                                float(np.percentile(cmaxs, 25)/ self.init_ub),
+                                float(np.median(cmaxs)/ self.init_ub),
+                                float(np.percentile(cmaxs, 75)/ self.init_ub),
+                                float(np.max(cmaxs)/ self.init_ub),
+                                math.log1p(transition.nb_visits)
+                            ]
+                            break
                 scheduled_flag: float     = 1.0 if task["Id"] in self.scheduled_tasks else 0.0
+                feasible_flag: float      = 1.0 if task["Id"] in [t["Id"] for t in possible_actions] else 0.0
                 remaining_duration: float = max(task["Finish"] - self.make_span, 0.0) / task["Duration"] if task["Id"] in self.scheduled_tasks else 1.0
-                op_features.append([float(self.std_durations[i]),                             # 1. duration as non-zero percentage of max duration
-                                    float(task["ES"] / mean_duration),                        # 2. earliest start time as percentage of lower bound
-                                    float(task["LS"] / mean_duration),                        # 3. latest start time as percentage of lower bound
-                                    float(task["EF"] / mean_duration),                        # 4. earliest finish time as percentage of lower bound
+                remaining_duration: float = max(task["Finish"] - self.make_span, 0.0) / task['Duration'] if task["Id"] in self.scheduled_tasks else task['Duration']
+                feature_vector = [float(self.std_durations[i]),                               # 1. duration as non-zero percentage of max duration
+                                    float(task["ES"] / self.init_ub),                         # 2. earliest start time as percentage of upper bound
+                                    float(task["LS"] / self.init_ub),                         # 3. latest start time as percentage of upper bound
+                                    float(task["EF"] / self.init_ub),                         # 4. earliest finish time as percentage of upper bound
                                     float(1.0 if task["Id"] in self.critical_path else 0.0),  # 5. is the task part of the critical path or not?
                                     float(remaining_duration),                                # 6. remaining duration as percentage of task duration
-                                    float(task.get("Start", 0.0) / mean_duration),            # 7. start time as percentage of lower bound
-                                    float(task.get("Finish", 0.0) / mean_duration),           # 8. end time as percentage of lower bound
+                                    float(task.get("Start", 0.0) / self.init_ub),             # 7. start time as percentage of upper bound
+                                    float(task.get("Finish", 0.0) / self.init_ub),            # 8. end time as percentage of upper bound
                                     float(self.indirect_successors[i] / self.n_tasks),        # 9. number of indirect successors as percentage of total tasks
-                                    float(scheduled_flag)])                                   # 10. scheduled tast
+                                    float(scheduled_flag),                                    # 10. scheduled tast
+                                    float(feasible_flag)]                                     # 11. feasibility flag
+                feature_vector.extend([float(v) for v in past_vector])                        # 12->17. past visit vector (min, Q1, median, Q3, max of Cmax + nb visits)
+                op_features.append(feature_vector)
             else:
-                op_features.append([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+                op_features.append([0.0 for _ in range(self.TASK_FEATURES)])
         graph[O].x = torch.tensor(op_features, dtype=torch.float)
 
         # 2. Resource nodes

@@ -24,14 +24,14 @@ EPS_START: float         = 0.99   # starting value of epsilon
 EPS_END: float           = 0.005  # final value of epsilon
 EPS_DECAY: int           = 350    # controls the rate of exponential decay of epsilon, higher means a slower decay (≈35%)
 
-GREEDY_RATE: float       = 0.3    # rate of using greedy action selection instead of stochastic action selection
+GREEDY_RATE: float       = 0.35   # rate of using greedy action selection instead of stochastic action selection
 
 GAMMA: float             = 1.0    # discount factor
 TAU: float               = 0.003  # update rate of the target network
 
-W_LB: float              = 0.40   
-W_UB: float              = 0.35
-W_FINAL: float           = 0.25
+W_LB: float              = 0.45   
+W_UB: float              = 0.40
+W_FINAL: float           = 0.15
 
 ELITS: int               = 250    # maximum number of elits solutions for the X operator
 
