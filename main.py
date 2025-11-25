@@ -68,8 +68,8 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
     _best_episode: int         = -1
     _tasks, _resources         = build_instance(_instance_path)
     _best_state: State         = State.from_problem(tasks=_tasks, resources=_resources, device=_device)
-    _POLICY_NET: HyperGraphGNN = HyperGraphGNN(task_features=State.TASK_FEATURES, resource_features=State.RESOURCE_FEATURES, demand_features=State.DEMAND_FEATURES).to(_device)
-    _TARGET_NET: HyperGraphGNN = HyperGraphGNN(task_features=State.TASK_FEATURES, resource_features=State.RESOURCE_FEATURES, demand_features=State.DEMAND_FEATURES).to(_device)
+    _POLICY_NET: HyperGraphGNN = HyperGraphGNN(task_features=State.TASK_FEATURES, resource_features=State.RESOURCE_FEATURES, demand_features=State.DEMAND_FEATURES, num_tasks=len(_tasks), num_resources=len(_resources)).to(_device)
+    _TARGET_NET: HyperGraphGNN = HyperGraphGNN(task_features=State.TASK_FEATURES, resource_features=State.RESOURCE_FEATURES, demand_features=State.DEMAND_FEATURES, num_tasks=len(_tasks), num_resources=len(_resources)).to(_device)
     _LOSS_TRACKER: Tracker     = Tracker(xlabel="Episode", ylabel="Loss", title="Huber Loss (policy network)", color="blue", show=interactive)
     _Cmax_TRACKER: Tracker     = Tracker(xlabel="Episode", ylabel="Makespan", title="Final Makespan by episode", color="red", show=interactive)
     _EPSILON_TRACKER: Tracker  = Tracker(xlabel="Episode", ylabel="epsilon", title="Diversity rate", color="green", show=interactive)
