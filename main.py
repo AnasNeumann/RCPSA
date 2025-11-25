@@ -11,7 +11,7 @@ import torch
 from torch import Tensor
 from torch.optim import AdamW
 
-from v2.conf import INTERACTIVE, LR, NB_EPISODES, EPS_DECAY, EPS_END, EPS_START, GREEDY_RATE, TOP_K
+from v2.conf import INTERACTIVE, LR, NB_EPISODES, EPS_DECAY, EPS_END, EPS_START, GREEDY_RATE, TOP_K, W_LB, W_UB
 from v2.src.common import display_final_computing_time
 from v2.src.state import State
 from v2.src.neural_nets import HyperGraphGNN
@@ -46,7 +46,7 @@ def diversify(state: State, memory: ITree, t: Transition, device: str, alpha: fl
         unseen   = unseen[:min(TOP_K, len(unseen))]
         lbs      = np.array([lb for _, lb, _ in unseen], dtype=float)
         ubs      = np.array([ub for _, _, ub in unseen], dtype=float)
-        quality  = (lbs + ubs) / 2.0
+        quality  = (lbs * W_LB + ubs * W_UB) / (W_UB + W_LB)
         norm_q = (quality - quality.min()) / (quality.max() - quality.min() + 1e-9)
         w        = np.exp(-alpha * norm_q)
         p        = w / w.sum()
@@ -127,6 +127,12 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                     _best_state   = _state
                     _best_episode = _episode
                 print(f"DQN Episode: {_episode} -- random_step: {diversified_step} -- Makespan: {_state.make_span} (best: {_best_state.make_span}) -- Є: {_e:.3f} -- Huber Loss: {huber_loss:.2f}")
+
+                # TIME TO FREE SOME MEMORY                
+                if _episode % 50 == 0 and _episode > 0:
+                    gc.collect()
+                    if torch.backends.mps.is_available():
+                        torch.mps.empty_cache()
 
                 # LAST EPISODE
                 if _episode == NB_EPISODES:

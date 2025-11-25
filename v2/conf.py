@@ -7,13 +7,13 @@ __license__ = "MIT License"
 
 INTERACTIVE: bool        = True
 
-EMBEDDING_DIMENSION: int = 16 # 12
+EMBEDDING_DIMENSION: int = 24 # 16, 12
 ATTENTION_HEADS: int     = 4
 GNN_STACK_SIZE: int      = 2
 DROPOUT_RATE: float      = 0.15
 
-MEMORY_CAPACITY: int     = 60_000 # number of transitions in the replay memory
-NB_EPISODES: int         = 1_500  # number of training/solving episodes
+MEMORY_CAPACITY: int     = 30_000 # number of transitions in the replay memory
+NB_EPISODES: int         = 3_000  # number of training/solving episodes
 BATCH_SIZE: int          = 128    # size of each batch sampled from the replay memory
 TOP_K: int               = 5      # number of top-Q actions to consider in the Boltzmann exploration
 TEMPERATURE: float       = 0.95   # temperature parameter for the Boltzmann exploration
@@ -27,9 +27,9 @@ GREEDY_RATE: float       = 0.3    # rate of using greedy action selection instea
 GAMMA: float             = 1.0    # discount factor
 TAU: float               = 0.003  # update rate of the target network
 
-W_LB: float              = 0.35    
+W_LB: float              = 0.40   
 W_UB: float              = 0.35
-W_FINAL: float           = 0.30
+W_FINAL: float           = 0.25
 
 O: str = "operation"
 R: str = "resource"

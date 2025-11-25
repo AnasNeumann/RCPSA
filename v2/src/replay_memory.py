@@ -47,12 +47,11 @@ class Transition:
         return self.parent == t.parent and torch.equal(self.action, t.action)
     
     def compute_reward(self, makespan: int, device: DeviceLikeType):
-        r: float = (-1.0) * (makespan * W_FINAL + self.delta_lb * W_LB + self.delta_ub * W_UB)
+        r: float = (-1.0) * ((makespan * W_FINAL) + (self.delta_lb * W_LB) + (self.delta_ub * W_UB))
         self.reward   = torch.tensor([r], device=device)
         self.makespan = makespan
         self.lb       = min(self.lb, makespan)
         self.ub       = max(self.ub, makespan)
-        print(f"Computed reward: {self.reward.item()} for makespan: {makespan} (LB: {self.lb}, UB: {self.ub})")
 
 class ITree:
     """

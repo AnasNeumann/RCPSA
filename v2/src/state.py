@@ -22,7 +22,7 @@ __version__ = "1.0.0"
 __license__ = "MIT License"
 
 class State():
-    TASK_FEATURES: int     = 9
+    TASK_FEATURES: int     = 10
     RESOURCE_FEATURES: int = 2
     DEMAND_FEATURES: int   = 1
 
@@ -230,8 +230,8 @@ class State():
         mean_duration: float = (self.init_lb + self.init_ub) / 2.0
         for i, task in enumerate(self.tasks):
             if task["Duration"] > 0:
-                start_step: int = self.scheduled_tasks.index(i) if i in self.scheduled_tasks else -1
-                remaining_duration: float = max(0, task["Duration"] - self.make_span + start_step) / task["Duration"] if start_step >= 0 else 1.0
+                scheduled_flag: float     = 1.0 if task["Id"] in self.scheduled_tasks else 0.0
+                remaining_duration: float = max(task["Finish"] - self.make_span, 0.0) / task["Duration"] if task["Id"] in self.scheduled_tasks else 1.0
                 op_features.append([float(self.std_durations[i]),                             # 1. duration as non-zero percentage of max duration
                                     float(task["ES"] / mean_duration),                        # 2. earliest start time as percentage of lower bound
                                     float(task["LS"] / mean_duration),                        # 3. latest start time as percentage of lower bound
@@ -240,7 +240,8 @@ class State():
                                     float(remaining_duration),                                # 6. remaining duration as percentage of task duration
                                     float(task.get("Start", 0.0) / mean_duration),            # 7. start time as percentage of lower bound
                                     float(task.get("Finish", 0.0) / mean_duration),           # 8. end time as percentage of lower bound
-                                    float(self.indirect_successors[i] / self.n_tasks)])       # 9. number of indirect successors as percentage of total tasks
+                                    float(self.indirect_successors[i] / self.n_tasks),        # 9. number of indirect successors as percentage of total tasks
+                                    float(scheduled_flag)])                                   # 10. scheduled tast
             else:
                 op_features.append([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         graph[O].x = torch.tensor(op_features, dtype=torch.float)
