@@ -33,6 +33,8 @@ W_LB: float              = 0.40
 W_UB: float              = 0.35
 W_FINAL: float           = 0.25
 
+ELITS: int               = 250    # maximum number of elits solutions for the X operator
+
 O: str = "operation"
 R: str = "resource"
 P: str = "precedence"

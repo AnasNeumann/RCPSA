@@ -20,6 +20,7 @@ from v2.src.tracker import Tracker
 from v2.src.instance_reader import build_instance
 from v2.src.dqn_functions import take_step, optimize_policy_net, optimize_target_net, select_action
 from v2.src.scheduling_functions import find_feasible_tasks
+from v2.src.crossover import X
 
 # ================================
 # =*= MAIN CODE OF THE PROJECT =*=
@@ -71,10 +72,12 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
     _POLICY_NET: HyperGraphGNN = HyperGraphGNN(task_features=State.TASK_FEATURES, resource_features=State.RESOURCE_FEATURES, demand_features=State.DEMAND_FEATURES, num_tasks=len(_tasks), num_resources=len(_resources)).to(_device)
     _TARGET_NET: HyperGraphGNN = HyperGraphGNN(task_features=State.TASK_FEATURES, resource_features=State.RESOURCE_FEATURES, demand_features=State.DEMAND_FEATURES, num_tasks=len(_tasks), num_resources=len(_resources)).to(_device)
     _LOSS_TRACKER: Tracker     = Tracker(xlabel="Episode", ylabel="Loss", title="Huber Loss (policy network)", color="blue", show=interactive)
-    _Cmax_TRACKER: Tracker     = Tracker(xlabel="Episode", ylabel="Makespan", title="Final Makespan by episode", color="red", show=interactive)
-    _EPSILON_TRACKER: Tracker  = Tracker(xlabel="Episode", ylabel="epsilon", title="Diversity rate", color="green", show=interactive)
+    _Cmax_TRACKER: Tracker     = Tracker(xlabel="Episode", ylabel="Makespan", title="Final Makespan by DQN episode", color="red", show=interactive)
+    _X_TRACKER: Tracker        = Tracker(xlabel="Episode", ylabel="Makespan", title="Final Makespan by X episode", color="green", show=interactive)
+    _EPSILON_TRACKER: Tracker  = Tracker(xlabel="Episode", ylabel="epsilon", title="Diversity rate", color="black", show=interactive)
     _REPLAY_MEMORY: Memory     = Memory(device=_device)
     _TREE: ITree               = _REPLAY_MEMORY.add_instance_if_new(instance_name=instance_name)
+    _X: X                      = X(tasks=_tasks, resources=_resources, device=_device)
     for param in _POLICY_NET.parameters():
         if param.dim() > 1:
             torch.nn.init.xavier_uniform_(param)
@@ -118,6 +121,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
 
             # END OF EPISODE
             if _state.done:
+                _X.add(_state)
                 _EPSILON_TRACKER.update(_e)
                 _Cmax_TRACKER.update(_state.make_span)
                 _TREE.add_or_update_transition(transition=_transitions_in_episode[0], final_makespan=_state.make_span)
@@ -127,6 +131,18 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                     _best_state   = _state
                     _best_episode = _episode
                 print(f"DQN Episode: {_episode} -- random_step: {diversified_step} -- Makespan: {_state.make_span} (best: {_best_state.make_span}) -- Є: {_e:.3f} -- Huber Loss: {huber_loss:.2f}")
+
+                # TIME TO RUN CROSSOVER OPERATOR (X)
+                if _X.available():
+                    X_solution, feasible, X_transitions = _X.run()
+                    if feasible:
+                        _TREE.add_or_update_transition(transition=X_transitions[0], final_makespan=X_solution.make_span)
+                        _X.add(X_solution)
+                        _X_TRACKER.update(X_solution.make_span)
+                        if X_solution.make_span < _best_state.make_span:
+                            _best_state   = X_solution
+                            _best_episode = _episode
+                        print(f"X feasible episode: -- Makespan: {X_solution.make_span}")
 
                 # TIME TO FREE SOME MEMORY                
                 if _episode % 50 == 0 and _episode > 0:
@@ -140,7 +156,8 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                     os.makedirs(os.path.dirname(_saving_path), exist_ok=True)
                     with open(_saving_path + "_results.txt", "w", encoding="utf-8") as file:
                         file.write(f"Best episode: {_best_episode}\nHuber Loss:{huber_loss:.2f}\nMakespan: {_best_state.make_span}\nSequence: {_best_state.id}")
-                    _Cmax_TRACKER.save(_saving_path + "_makespan")
+                    _Cmax_TRACKER.save(_saving_path + "_DRL_makespan")
+                    _X_TRACKER.save(_saving_path + "_X_makespan")
                     _EPSILON_TRACKER.save(_saving_path + "_diversity")
                     _LOSS_TRACKER.save(_saving_path + "_loss")
                     torch.save(_TARGET_NET.state_dict(), _saving_path + "_target_gnn.pth")

@@ -243,7 +243,7 @@ class State():
                                     float(self.indirect_successors[i] / self.n_tasks),        # 9. number of indirect successors as percentage of total tasks
                                     float(scheduled_flag)])                                   # 10. scheduled tast
             else:
-                op_features.append([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+                op_features.append([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         graph[O].x = torch.tensor(op_features, dtype=torch.float)
 
         # 2. Resource nodes
