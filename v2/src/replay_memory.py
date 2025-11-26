@@ -58,10 +58,12 @@ class Transition:
         self.makespans.append(makespan)
 
     def revisit(self, t: 'Transition'):
-        self.reward     = torch.max(self.reward, t.reward)
-        self.makespan   = min(self.makespan, t.makespan)
         self.nb_visits += 1
         self.makespans.append(t.makespan)
+        if self.makespan >= t.makespan:
+            self.reward   = t.reward
+            self.makespan = t.makespan
+            self.graph    = t.graph
 
 class ITree:
     """
