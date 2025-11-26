@@ -16,7 +16,6 @@ from v2.src.neural_nets import HyperGraphGNN
 from v2.src.state import State
 from v2.src.replay_memory import Memory
 from v2.src.tracker import Tracker
-from v2.src.scheduling_functions import find_feasible_tasks, find_possible_start_day_for_task
 
 # ==========================================================================
 # =*= Reinforcement Learning (DQN) related functions only for GNN solver =*=
@@ -24,72 +23,6 @@ from v2.src.scheduling_functions import find_feasible_tasks, find_possible_start
 __author__  = "Anas Neumann - anas.neumann@polymtl.ca"
 __version__ = "1.0.0"
 __license__ = "MIT License"
-
-def build_impossible_state(impossible_state: State, task: dict):
-    """
-        Build an impossible state with high penalties
-        Works for both type of state (simple matrix and transformer)
-    """
-    impossible_state.scheduled_tasks.append(task["Id"])
-    impossible_state.id = f'{impossible_state.id}_{task["Id"]}'
-    impossible_state.make_span = 100000
-    impossible_state.reward = -100000
-    impossible_state.done = True
-    print("IMPOSSIBLE")
-    return impossible_state
-
-def check_precedence_feasibility(state: State, task)->bool:
-    """
-        Check if a task can be executed (if no predecessor not executed yet)
-        Works for both type of state (simple matrix and transformer)
-    """
-    if task["Id"] in state.scheduled_tasks:
-        return False
-    preds = task["Predecessors"]
-    predecessors = [t['Id'] for t in state.tasks if t['Id'] in preds]
-    for t in predecessors:
-        if t not in state.scheduled_tasks:
-            return False
-    return True
-
-def ssgs(tasks: list[dict], resources: list[tuple[int, int]], task: dict, ub: int) -> dict:
-    """
-        Find the earliest feasible start day for a task using the Serial Schedule Generation Scheme (SSGS)
-        Return the task with updated "Start" and "Finish" fields (or -1 if not possible within the horizon)
-    """
-    min_start_day = 1
-    predecessor_ids = task["Predecessors"]
-    predecessors = [t for t in tasks if t['Id'] in predecessor_ids]
-    for predecessor in predecessors:
-        if predecessor["Finish"] >= min_start_day:
-            min_start_day = predecessor["Finish"] + (not (not (predecessor["Duration"] * task["Duration"])))
-    start_day = find_possible_start_day_for_task(tasks, resources, task, min_start_day, ub)
-    if start_day > 0:
-        task["Start"] = start_day
-        task["Finish"] = start_day + task["Duration"] - (not (not (task["Duration"])))
-    return task
-
-def take_step(state: State, action: int) -> tuple[State, dict]:
-    """
-        Take a step in the environment by selecting an action (task) to schedule
-    """
-    new_state: State = State.from_partial_solution(state)
-    try:
-        task = [t for t in new_state.tasks if t["Id"] == action][0]
-    except:
-        print(f"{action} not found")
-        exit()
-    feasible: bool = check_precedence_feasibility(state, task)
-    task = ssgs(new_state.tasks, new_state.resources, task, 10000)
-    if not feasible or task["Start"] <= 0:
-        new_state = build_impossible_state(new_state, task)
-    else:
-        new_state.scheduled_tasks.append(task["Id"])
-        new_state.id = f'{new_state.id}_{task["Id"]}' if task["Id"] > 0 else f'{task["Id"]}'
-        new_state.make_span = max(new_state.make_span, task["Finish"])
-        if len(new_state.scheduled_tasks) == len(new_state.tasks):
-            new_state.done = True
-    return new_state, task
 
 mps_amp = (torch.autocast(device_type="mps", dtype=torch.float16) if torch.backends.mps.is_available() else nullcontext())
 

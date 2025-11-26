@@ -18,8 +18,8 @@ from v2.src.neural_nets import HyperGraphGNN
 from v2.src.replay_memory import Transition, Memory, ITree
 from v2.src.tracker import Tracker
 from v2.src.instance_reader import build_instance
-from v2.src.dqn_functions import take_step, optimize_policy_net, optimize_target_net, select_action
-from v2.src.scheduling_functions import find_feasible_tasks
+from v2.src.dqn_functions import optimize_policy_net, optimize_target_net, select_action
+from v2.src.scheduling_functions import find_feasible_tasks, take_step
 
 # ================================
 # =*= MAIN CODE OF THE PROJECT =*=
@@ -28,7 +28,7 @@ __author__  = "Anas Neumann - anas.neumann@polymtl.ca"
 __version__ = "1.0.0"
 __license__ = "MIT License"
 
-def diversify(state: State, memory: ITree, t: Transition, device: str, possible_actions: list[dict]) -> Tensor:
+def diversify(state: State, memory: ITree, t: Transition, device: str, possible_actions: list[dict], best_known_Cmax: int) -> Tensor:
     """
         Select a random feasible action that has not been tried yet in the current branch of the tree
     """
@@ -40,7 +40,8 @@ def diversify(state: State, memory: ITree, t: Transition, device: str, possible_
         if _next_t is None:
             _next_state, _ = take_step(state=state, action=id)
             lb: int        = _next_state.compute_lower_bound()
-            unseen.append((id, lb))
+            if lb < best_known_Cmax:
+                unseen.append((id, lb))
     if unseen:
         print(len(unseen), "... unseen actions found for diversification")
         unseen.sort(key=lambda x: x[1])
@@ -92,7 +93,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
         for step in count():
             should_diversify: bool = _search_transition and (step == diversified_step)
             if should_diversify:
-                _action_idx, failed = diversify(state=_state, memory=_TREE, t=transition, device=_device, possible_actions=possible_actions)
+                _action_idx, failed = diversify(state=_state, memory=_TREE, t=transition, device=_device, possible_actions=possible_actions, best_known_Cmax=_best_state.make_span)
                 if failed:
                     should_diversify  = False
                     diversified_step += 1
