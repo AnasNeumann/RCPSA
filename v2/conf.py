@@ -9,7 +9,7 @@ INTERACTIVE: bool        = True
 
 TASK_ID_DIM: int         = 4
 RESOURCE_ID_DIM: int     = 2
-EMBEDDING_DIMENSION: int = 24 # 16, 12
+EMBEDDING_DIMENSION: int = 28 # 16, 12
 ATTENTION_HEADS: int     = 4
 GNN_STACK_SIZE: int      = 2
 DROPOUT_RATE: float      = 0.15

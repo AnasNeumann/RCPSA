@@ -24,7 +24,7 @@ __version__ = "1.0.0"
 __license__ = "MIT License"
 
 class State():
-    TASK_FEATURES: int     = 17
+    TASK_FEATURES: int     = 18
     RESOURCE_FEATURES: int = 2
     DEMAND_FEATURES: int   = 1
 
@@ -63,7 +63,7 @@ class State():
     @classmethod
     def from_empty_solution(cls, s, tasks: list, resources: list):
         return State(device=s.device, p_id=s.id, p_make_span=0, p_tasks=tasks, p_resources=resources, p_scheduled_tasks=[], std_durations=s.std_durations, lower_bound=s.lower_bound, init_lb=s.init_lb, upper_bound=s.upper_bound, init_ub=s.init_ub, indirect_successors=s.indirect_successors, critical_path=s.critical_path, max_duration=s.max_duration)
-    
+ 
     def get_possible_dates(self, tasks: list[dict], resources: list[tuple[int, int]], task: dict, ub: int) -> dict:
         """
             Get possible dates for a task
@@ -259,8 +259,9 @@ class State():
                                     float(task.get("Finish", 0.0) / self.init_ub),            # 8. end time as percentage of upper bound
                                     float(self.indirect_successors[i] / self.n_tasks),        # 9. number of indirect successors as percentage of total tasks
                                     float(scheduled_flag),                                    # 10. scheduled tast
-                                    float(feasible_flag)]                                     # 11. feasibility flag
-                feature_vector.extend([float(v) for v in past_vector])                        # 12->17. past visit vector (min, Q1, median, Q3, max of Cmax + nb visits)
+                                    float(feasible_flag),                                     # 11. feasibility flag
+                                    float((len(self.scheduled_tasks) + 1) / len(self.tasks))] # 12. progress ratio
+                feature_vector.extend([float(v) for v in past_vector])                        # 13->18. past visit vector (min, Q1, median, Q3, max of Cmax + nb visits)
                 op_features.append(feature_vector)
             else:
                 op_features.append([0.0 for _ in range(self.TASK_FEATURES)])
