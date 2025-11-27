@@ -12,10 +12,10 @@ from torch import device as Device
 from torch_geometric.data import HeteroData
 from torch_geometric.utils import to_networkx
 
-from v2.conf import O, P, D, R, S
-from v2.src.scheduling_functions import find_possible_start_day_for_task
-from v2.src.instance_reader import khan_topological_sort
-from v2.src.replay_memory import Transition, PossibleAction
+from conf import O, P, D, R, S
+from src.scheduling_functions import find_possible_start_day_for_task
+from src.instance_reader import khan_topological_sort
+from src.replay_memory import Transition, PossibleAction
 
 # ===========================================
 # =*= Model file for an Hyper-Graph State =*=

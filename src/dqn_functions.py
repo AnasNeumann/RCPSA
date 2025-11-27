@@ -10,13 +10,13 @@ from torch import Tensor
 from torch_geometric.data import Batch, HeteroData
 from torch_geometric.nn import global_max_pool
 
-from v1.conf import TAU, BATCH_SIZE, TOP_K, GAMMA, O, TEMPERATURE
+from conf import TAU, BATCH_SIZE, TOP_K, GAMMA, O, TEMPERATURE, INFINITY
 
-from v1.src.neural_nets import HyperGraphGNN 
-from v1.src.state import State
-from v1.src.replay_memory import Memory
-from v1.src.tracker import Tracker
-from v1.src.scheduling_functions import find_feasible_tasks, find_possible_start_day_for_task
+from src.neural_nets import HyperGraphGNN 
+from src.state import State
+from src.replay_memory import Memory, PossibleAction
+from src.tracker import Tracker
+from src.scheduling_functions import find_possible_start_day_for_task
 
 # ==========================================================================
 # =*= Reinforcement Learning (DQN) related functions only for GNN solver =*=
@@ -24,19 +24,6 @@ from v1.src.scheduling_functions import find_feasible_tasks, find_possible_start
 __author__  = "Anas Neumann - anas.neumann@polymtl.ca"
 __version__ = "1.0.0"
 __license__ = "MIT License"
-
-def build_impossible_state(impossible_state: State, task: dict):
-    """
-        Build an impossible state with high penalties
-        Works for both type of state (simple matrix and transformer)
-    """
-    impossible_state.scheduled_tasks.append(task["Id"])
-    impossible_state.id = f'{impossible_state.id}_{task["Id"]}'
-    impossible_state.make_span = 100000
-    impossible_state.reward = -100000
-    impossible_state.done = True
-    print("IMPOSSIBLE")
-    return impossible_state
 
 def check_precedence_feasibility(state: State, task)->bool:
     """
@@ -57,23 +44,35 @@ def ssgs(tasks: list[dict], resources: list[tuple[int, int]], task: dict, ub: in
         Find the earliest feasible start day for a task using the Serial Schedule Generation Scheme (SSGS)
         Return the task with updated "Start" and "Finish" fields (or -1 if not possible within the horizon)
     """
-    min_start_day = 1
+    min_start_day   = 0
     predecessor_ids = task["Predecessors"]
-    predecessors = [t for t in tasks if t['Id'] in predecessor_ids]
+    predecessors    = [t for t in tasks if t['Id'] in predecessor_ids]
     for predecessor in predecessors:
         if predecessor["Finish"] >= min_start_day:
             min_start_day = predecessor["Finish"] + (not (not (predecessor["Duration"] * task["Duration"])))
     start_day = find_possible_start_day_for_task(tasks, resources, task, min_start_day, ub)
     if start_day > 0:
-        task["Start"] = start_day
+        task["Start"]  = start_day
         task["Finish"] = start_day + task["Duration"] - (not (not (task["Duration"])))
     return task
+
+def build_impossible_state(impossible_state: State, task: dict):
+    """
+        Build an impossible state with high penalties
+        Works for both type of state (simple matrix and transformer)
+    """
+    impossible_state.scheduled_tasks.append(task["Id"])
+    impossible_state.id = f'{impossible_state.id}_{task["Id"]}'
+    impossible_state.make_span = INFINITY
+    impossible_state.reward = -INFINITY
+    impossible_state.done = True
+    return impossible_state
 
 def take_step(state: State, action: int) -> tuple[State, dict]:
     """
         Take a step in the environment by selecting an action (task) to schedule
     """
-    new_state: State = State.from_partial_solution(state, build_graph=False)
+    new_state: State = State.from_partial_solution(state)
     try:
         task = [t for t in new_state.tasks if t["Id"] == action][0]
     except:
@@ -93,16 +92,15 @@ def take_step(state: State, action: int) -> tuple[State, dict]:
 
 mps_amp = (torch.autocast(device_type="mps", dtype=torch.float16) if torch.backends.mps.is_available() else nullcontext())
 
-def select_action(state: State, policy_net: HyperGraphGNN, e: float, greedy: bool, device: Device, memory: Memory=None) -> Tensor:
+def select_action(state: State, policy_net: HyperGraphGNN, e: float, greedy: bool, possible_actions: list[PossibleAction], device: Device, memory: Memory=None) -> Tensor:
     """
         Select a feasible-only action using the current policy network OR random (when replay memory is still relatively empty)
     """
-    possible_actions = find_feasible_tasks(state.tasks, state.scheduled_tasks)
     action: int      = -1
     if random.random() > e and len(memory.flat_transitions) >= BATCH_SIZE: 
         with torch.inference_mode(), mps_amp:                                
             Q_values: Tensor = policy_net(Batch.from_data_list([state.graph]).to(device))
-            possible_idx     = torch.tensor([action['Id'] for action in possible_actions], device=device)
+            possible_idx     = torch.tensor([action.id for action in possible_actions], device=device)
             selected_values  = Q_values[possible_idx].squeeze(-1)
             if greedy:
                 _, index     = selected_values.max(0)
@@ -115,7 +113,7 @@ def select_action(state: State, policy_net: HyperGraphGNN, e: float, greedy: boo
                 index     = idx[torch.multinomial(p, 1)].item()
             action        = possible_idx[index].item()
     else:
-        action = random.choice(possible_actions)["Id"]
+        action = random.choice(possible_actions).id
     return torch.tensor([[action]], device=device, dtype=torch.long)
 
 def _build_batch_indices(actions_local_indices: Tensor, nb_tasks :int, batch_size: int):

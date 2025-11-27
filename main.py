@@ -11,15 +11,15 @@ import torch
 from torch import Tensor
 from torch.optim import AdamW
 
-from v2.conf import INTERACTIVE, LR, NB_EPISODES, EPS_DECAY, EPS_END, EPS_START, GREEDY_RATE, TOP_K, INFINITY
-from v2.src.common import display_final_computing_time
-from v2.src.state import State
-from v2.src.neural_nets import HyperGraphGNN
-from v2.src.replay_memory import Transition, Memory, ITree, PossibleAction
-from v2.src.tracker import Tracker
-from v2.src.instance_reader import build_instance
-from v2.src.dqn_functions import optimize_policy_net, optimize_target_net, select_action, take_step
-from v2.src.scheduling_functions import find_feasible_tasks
+from conf import INTERACTIVE, LR, NB_EPISODES, EPS_DECAY, EPS_END, EPS_START, GREEDY_RATE, TOP_K, INFINITY
+from src.common import display_final_computing_time
+from src.state import State
+from src.neural_nets import HyperGraphGNN
+from src.replay_memory import Transition, Memory, ITree, PossibleAction
+from src.tracker import Tracker
+from src.instance_reader import build_instance
+from src.dqn_functions import optimize_policy_net, optimize_target_net, select_action, take_step
+from src.scheduling_functions import find_feasible_tasks
 
 # ================================
 # =*= MAIN CODE OF THE PROJECT =*=
