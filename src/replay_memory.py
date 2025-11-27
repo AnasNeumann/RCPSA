@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from collections import deque
 
 import torch
 from torch import Tensor
@@ -150,15 +151,15 @@ class Memory:
     def __init__(self, device: DeviceLikeType):
         self.device = device
         self.instance_trees: list[ITree] = []
-        self.flat_transitions: list[Transition] = []
+        self.flat_transitions: deque = deque(maxlen=MEMORY_CAPACITY)
 
     def add_into_flat_memory(self, transition: Transition):
         if not transition.in_memory:
             transition.in_memory = True
-            self.flat_transitions.append(transition)
-            if len(self.flat_transitions) > MEMORY_CAPACITY:
-                _old: Transition = self.flat_transitions.pop(0)
+            if len(self.flat_transitions) == MEMORY_CAPACITY:
+                _old: Transition = self.flat_transitions.popleft() 
                 _old.in_memory = False
+            self.flat_transitions.append(transition)
     
     def add_instance_if_new(self, instance_name: str) -> ITree:
         for tree in self.instance_trees:

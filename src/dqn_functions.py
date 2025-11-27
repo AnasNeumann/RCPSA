@@ -9,6 +9,7 @@ from torch import device as Device
 from torch import Tensor
 from torch_geometric.data import Batch, HeteroData
 from torch_geometric.nn import global_max_pool
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from conf import TAU, BATCH_SIZE, TOP_K, GAMMA, O, TEMPERATURE, INFINITY
 
@@ -158,16 +159,15 @@ def _build_batch_indices(actions_local_indices: Tensor, nb_tasks :int, batch_siz
     actions_global_indices: Tensor = graph_offsets.view(-1, 1) + actions_local_indices
     return actions_global_indices.long()
 
-def optimize_policy_net(memory: Memory, policy_net: HyperGraphGNN, target_net: HyperGraphGNN, optimizer: AdamW, tracker: Tracker, nb_tasks: int, device: Device):
+def optimize_policy_net(memory: Memory, policy_net: HyperGraphGNN, target_net: HyperGraphGNN, optimizer: AdamW, scheduler: ReduceLROnPlateau, tracker: Tracker, nb_tasks: int, device: Device):
     """
         Optimize the polict network using the Huber loss between selected action and expected best action (based on approx Q-value)
             y = reward r + discounted factor γ x MAX_Q_VALUES(state s+1) predicted with Q_target
             x = predicted quality of (s, a) using the policy network
             L(x, y) = 1/2 (x-y)^2 for small errors (|x-y| ≤ δ) else δ|x-y| - 1/2 x δ^2
     """
-    _samples_size = min(len(memory.flat_transitions), BATCH_SIZE)
-    sampled_idx: list[int]                            = random.sample(range(len(memory.flat_transitions)), _samples_size)
-    sampled_transitions: list                         = [memory.flat_transitions[id] for id in sampled_idx]
+    _samples_size: int                                = min(len(memory.flat_transitions), BATCH_SIZE)
+    sampled_transitions: list                         = random.sample(list(memory.flat_transitions), _samples_size)
     b_actions, b_previous_graphs, b_graphs, b_rewards = zip(*[(t.action, t.previous_graph, t.graph, t.reward) for t in sampled_transitions])
     b_dones: Tensor                                   = torch.tensor([len(t.next) == 0 for t in sampled_transitions], device=device, dtype=torch.float32)
     graph_batch: HeteroData                           = Batch.from_data_list(b_previous_graphs).to(device)
@@ -177,9 +177,11 @@ def optimize_policy_net(memory: Memory, policy_net: HyperGraphGNN, target_net: H
     state_all_q_values: Tensor                        = policy_net(graph_batch).squeeze(-1)                   # Shape: [num_tasks for all graphs in the batch]
     state_action_q_values: Tensor                     = state_all_q_values[action_batch.squeeze(-1)]          # Shape: [batch_size]
     with torch.no_grad():
+        feasible_mask                        = next_graph_batch[O].x[:, 10].bool()
         next_all_q_values: Tensor            = target_net(next_graph_batch).squeeze(-1)                       # Shape: [num_total_next_tasks]
+        next_all_q_values[~feasible_mask]    = -float('inf')
         next_state_max_q_values: Tensor      = global_max_pool(next_all_q_values, next_graph_batch[O].batch)  # Shape: [num_non_final_states < reward_batch]
-        expected_state_action_values: Tensor = reward_batch + (1.0 - b_dones) * next_state_max_q_values * GAMMA
+        expected_state_action_values: Tensor = reward_batch + (1.0 - b_dones) * next_state_max_q_values * GAMMA    
     criterion = nn.SmoothL1Loss(beta=1.0).to(device)
     loss = criterion(state_action_q_values, expected_state_action_values)
     optimizer.zero_grad()
@@ -187,6 +189,7 @@ def optimize_policy_net(memory: Memory, policy_net: HyperGraphGNN, target_net: H
     torch.nn.utils.clip_grad_value_(policy_net.parameters(), 20)
     torch.nn.utils.clip_grad_norm_(policy_net.parameters(), 2.0)
     optimizer.step()
+    scheduler.step(loss)
     printed_loss = loss.detach().cpu().item()
     tracker.update(loss_value=printed_loss)
     return printed_loss
