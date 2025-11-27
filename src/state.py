@@ -41,6 +41,7 @@ class State():
         self.n_resources: int          = len(self.resources)
         self.scheduled_tasks: list     = copy.deepcopy(p_scheduled_tasks) if deep_cpy else p_scheduled_tasks
         self.indirect_successors: list = indirect_successors if indirect_successors else self._compute_num_indirect_successors()
+        self.task_map                  = {t["Id"]: t for t in self.tasks}
         self.critical_path             = critical_path if critical_path else self.extract_critical_path()
         if std_durations:
             self.std_durations = std_durations
@@ -69,7 +70,6 @@ class State():
         """
             Combines LB_CPM - Critical Path Method (Longest path based on precedence) and LB_RES - Resource Capacity Bound (Volume of work / Capacity)
         """
-        task_map       = {t["Id"]: t for t in self.tasks}
         es             = {}
         scheduled_set  = set(self.scheduled_tasks)
         remaining_work = {} 
@@ -99,7 +99,7 @@ class State():
             u_id = queue.popleft()
             current_finish_u = es[u_id]
             if u_id not in scheduled_set:
-                task_u             = task_map[u_id]
+                task_u             = self.task_map[u_id]
                 current_finish_u  += task_u["Duration"]
                 min_unscheduled_es = min(min_unscheduled_es, es[u_id])
             max_cpm = max(max_cpm, current_finish_u)
@@ -125,7 +125,6 @@ class State():
             Compute a feasible upper bound on the makespan using a serial schedule
             generation scheme from the current partial schedule.
         """
-        task_map    = {t["Id"]: t for t in self.tasks}
         task_finish = {t["Id"]: t.get("Finish", 0) for t in self.tasks if t["Id"] in self.scheduled_tasks}
         in_degree   = {t["Id"]: len(t["Predecessors"]) for t in self.tasks}
         for t in self.tasks:
@@ -134,7 +133,7 @@ class State():
                 in_degree[t["Id"]] -= len(current_preds)
         usage_profile = {} 
         for t_id in self.scheduled_tasks:
-            t        = task_map[t_id]
+            t        = self.task_map[t_id]
             start    = t.get("Start", 0)
             duration = t["Duration"]
             reqs     = []
@@ -198,7 +197,7 @@ class State():
             for succ_id in task["Successors"]:
                 in_degree[succ_id] -= 1
                 if in_degree[succ_id] == 0:
-                    eligible.append(task_map[succ_id])
+                    eligible.append(self.task_map[succ_id])
             scheduled_count += 1
         return current_makespan
 
@@ -233,11 +232,10 @@ class State():
         """
             Extract a critical path based on tasks with zero (LS - ES) slack.
         """
-        task_map = {t["Id"]: t for t in self.tasks}
         critical_ids = {t["Id"] for t in self.tasks if (t["LS"] - t["ES"]) == 0}
         def dfs(current: int, path: list[int]) -> list[int] | None:
             path = path + [current]
-            current_task = task_map[current]
+            current_task = self.task_map[current]
             if not current_task["Successors"]:
                 return path
             for succ in current_task["Successors"]:
