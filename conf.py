@@ -24,7 +24,7 @@ TEMPERATURE: float       = 0.95   # temperature parameter for the Boltzmann expl
 LR: float                = 1e-4   # learning rate of AdamW (Init value: 1e-4, 5e-5, 2.5e-5, 1.25e-5, 6.25e-6)
 EPS_START: float         = 0.99   # starting value of epsilon
 EPS_END: float           = 0.005  # final value of epsilon
-EPS_DECAY: int           = 400    # controls the rate of exponential decay of epsilon, higher means a slower decay (≈35%)
+EPS_DECAY: int           = 500    # controls the rate of exponential decay of epsilon, higher means a slower decay (≈35%)
 
 GREEDY_RATE: float       = 0.35   # rate of using greedy action selection instead of stochastic action selection
 

@@ -93,7 +93,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
     _POLICY_NET.train()
     _TARGET_NET.eval()
     _OPTIMIZER: AdamW             = AdamW(_POLICY_NET.parameters(), lr=LR, amsgrad=True)
-    _SCHEDULER: ReduceLROnPlateau = ReduceLROnPlateau(_OPTIMIZER, mode='min', factor=0.5, patience=100, verbose=True)
+    _SCHEDULER: ReduceLROnPlateau = ReduceLROnPlateau(_OPTIMIZER, mode='min', factor=0.5, patience=100)
     for _episode in range(1, NB_EPISODES+1):
         _e: float                                 = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * _episode / EPS_DECAY)
         transition: Transition                    = None
