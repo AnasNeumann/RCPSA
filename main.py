@@ -117,7 +117,6 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
             _steps                += 1
             _next_state, task      = take_step(state=_state, action=_action_idx.item())
             possible_actions       = search_possible_actions(state=_next_state, current_transition=transition, best_known_Cmax=Cmax, remove_bad_LB_banches=False)
-            print(possible_actions)
             if not possible_actions and not _next_state.done:
                 print(f"-> ERROR: No possible actions with lower bound < current best Cmax ({Cmax})!")
                 break

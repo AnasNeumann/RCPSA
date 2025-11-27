@@ -69,6 +69,7 @@ class State():
         """
             Combines LB_CPM - Critical Path Method (Longest path based on precedence) and LB_RES - Resource Capacity Bound (Volume of work / Capacity)
         """
+        task_map       = {t["Id"]: t for t in self.tasks}
         es             = {}
         scheduled_set  = set(self.scheduled_tasks)
         remaining_work = {} 
@@ -76,43 +77,39 @@ class State():
         graph          = {t["Id"]: [] for t in self.tasks}
         for t in self.tasks:
             tid = t["Id"]
-            for pid in t["Predecessors"]: 
+            for pid in t["Predecessors"]: # Build adjacency graph
                 graph[pid].append(tid)
                 in_degree[tid] += 1
-            if tid in scheduled_set:
-                es[tid] = t.get("Finish", 0) 
+            if tid in scheduled_set: es[tid] = t.get("Finish", 0) 
             else:
                 es[tid] = 0
-                reqs = []
+                reqs    = []
                 if "Resource" in t:
                     for r_id, _ in self.resources:
                         reqs.append(t["Resource"].get(str(r_id), 0))
-                elif "GlobalResources" in t:
-                    reqs = t["GlobalResources"]
+                elif "GlobalResources" in t: reqs = t["GlobalResources"]
                 for r_idx, amount in enumerate(reqs):
                     if amount > 0:
                         term = t["Duration"] * amount
                         remaining_work[r_idx] = remaining_work.get(r_idx, 0) + term
-        queue = deque([t["Id"] for t in self.tasks if in_degree[t["Id"]] == 0])
-        max_cpm = 0
+        queue              = deque([t["Id"] for t in self.tasks if in_degree[t["Id"]] == 0])
+        max_cpm            = 0
         min_unscheduled_es = float('inf') 
         while queue:
-            u_id             = queue.popleft()
+            u_id = queue.popleft()
             current_finish_u = es[u_id]
             if u_id not in scheduled_set:
-                task_u             = self.get_task(u_id)
+                task_u             = task_map[u_id]
                 current_finish_u  += task_u["Duration"]
                 min_unscheduled_es = min(min_unscheduled_es, es[u_id])
             max_cpm = max(max_cpm, current_finish_u)
             for v_id in graph[u_id]: 
-                if es[v_id] < current_finish_u:
-                    es[v_id] = current_finish_u
+                if es[v_id] < current_finish_u: es[v_id] = current_finish_u
                 in_degree[v_id] -= 1
-                if in_degree[v_id] == 0:
-                    queue.append(v_id)
+                if in_degree[v_id] == 0: queue.append(v_id)
         lb_res = 0
         if min_unscheduled_es != float('inf'):
-            max_load_duration = 0
+            max_load_duration  = 0
             capacities = [r[1] for r in self.resources] 
             for r_idx, work in remaining_work.items():
                 cap = capacities[r_idx]
@@ -128,6 +125,7 @@ class State():
             Compute a feasible upper bound on the makespan using a serial schedule
             generation scheme from the current partial schedule.
         """
+        task_map    = {t["Id"]: t for t in self.tasks}
         task_finish = {t["Id"]: t.get("Finish", 0) for t in self.tasks if t["Id"] in self.scheduled_tasks}
         in_degree   = {t["Id"]: len(t["Predecessors"]) for t in self.tasks}
         for t in self.tasks:
@@ -136,7 +134,7 @@ class State():
                 in_degree[t["Id"]] -= len(current_preds)
         usage_profile = {} 
         for t_id in self.scheduled_tasks:
-            t        = self.get_task(t_id)
+            t        = task_map[t_id]
             start    = t.get("Start", 0)
             duration = t["Duration"]
             reqs     = []
@@ -158,7 +156,7 @@ class State():
         capacities       = [r[1] for r in self.resources] 
         while scheduled_count < self.n_tasks:
             if not eligible: break
-            if priority   == "duration": eligible.sort(key=lambda t: (-t["Duration"], t["ES"]))
+            if priority == "duration": eligible.sort(key=lambda t: (-t["Duration"], t["ES"]))
             elif priority == "successors": eligible.sort(key=lambda t: (-len(t["Successors"]), -t["Duration"]))
             else: eligible.sort(key=lambda t: (t["LS"] - t["ES"], -t["Duration"]))
             task     = eligible.pop(0) 
@@ -167,8 +165,7 @@ class State():
             if "Resource" in task:
                 for r_id, _ in self.resources:
                     reqs.append(task["Resource"].get(str(r_id), 0))
-            elif "GlobalResources" in task:
-                reqs = task["GlobalResources"]
+            elif "GlobalResources" in task: reqs = task["GlobalResources"]
             pred_finish_time = 0
             for p_id in task["Predecessors"]:
                 f = task_finish.get(p_id, 0)
@@ -182,7 +179,7 @@ class State():
                         for r_idx, amount in enumerate(reqs):
                             if amount > 0:
                                 used = current_usage.get(r_idx, 0)
-                                cap  = capacities[r_idx]
+                                cap  = capacities[r_idx] # Now an Integer
                                 if used + amount > cap:
                                     feasible = False
                                     break
@@ -201,7 +198,7 @@ class State():
             for succ_id in task["Successors"]:
                 in_degree[succ_id] -= 1
                 if in_degree[succ_id] == 0:
-                    eligible.append(self.get_task(succ_id))
+                    eligible.append(task_map[succ_id])
             scheduled_count += 1
         return current_makespan
 
