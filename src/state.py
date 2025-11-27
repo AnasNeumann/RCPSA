@@ -25,7 +25,7 @@ __version__ = "1.0.0"
 __license__ = "MIT License"
 
 class State():
-    TASK_FEATURES: int     = 19
+    TASK_FEATURES: int     = 18
     RESOURCE_FEATURES: int = 2
     DEMAND_FEATURES: int   = 1
 
@@ -268,11 +268,11 @@ class State():
                         if transition.action.item() == task["Id"]:
                             cmaxs = np.array(transition.makespans)
                             past_vector = [
-                                float(np.min(cmaxs)/ self.init_ub),
-                                float(np.percentile(cmaxs, 25)/ self.init_ub),
+                                float(np.min(cmaxs) / self.init_ub),
+                                float(np.percentile(cmaxs, 25) / self.init_ub),
                                 float(np.median(cmaxs)/ self.init_ub),
-                                float(np.percentile(cmaxs, 75)/ self.init_ub),
-                                float(np.max(cmaxs)/ self.init_ub),
+                                float(np.percentile(cmaxs, 75) / self.init_ub),
+                                float(np.max(cmaxs) / self.init_ub),
                                 math.log1p(transition.nb_visits)]
                             break
                 std_Lb: float        = 1.0
@@ -283,21 +283,19 @@ class State():
                         feasible_flag = 1.0
                         break
                 scheduled_flag: float     = 1.0 if task["Id"] in self.scheduled_tasks else 0.0
-                remaining_duration: float = max(task["Finish"] - self.make_span, 0.0) / task["Duration"] if task["Id"] in self.scheduled_tasks else 1.0
                 feature_vector = [float(self.std_durations[i]),                               # 1. duration as non-zero percentage of max duration
                                     float(task["ES"] / self.init_ub),                         # 2. earliest start time as percentage of upper bound
                                     float(task["LS"] / self.init_ub),                         # 3. latest start time as percentage of upper bound
                                     float(task["EF"] / self.init_ub),                         # 4. earliest finish time as percentage of upper bound
                                     1.0 if task["Id"] in self.critical_path else 0.0,         # 5. is the task part of the critical path or not?
-                                    float(remaining_duration),                                # 6. remaining duration as percentage of task duration
-                                    float(task.get("Start", 0.0) / self.init_ub),             # 7. start time as percentage of upper bound
-                                    float(task.get("Finish", 0.0) / self.init_ub),            # 8. end time as percentage of upper bound
-                                    float(self.indirect_successors[i] / self.n_tasks),        # 9. number of indirect successors as percentage of total tasks
-                                    scheduled_flag,                                           # 10. scheduled tast
-                                    feasible_flag,                                            # 11. feasibility flag
-                                    current_progress,                                         # 12. progress ratio
-                                    std_Lb]                                                   # 13. standardized lower bound
-                feature_vector.extend([float(v) for v in past_vector])                        # 14->19. past visit vector (min, Q1, median, Q3, max of Cmax + nb visits)
+                                    float(task.get("Start", 0.0) / self.init_ub),             # 6. start time as percentage of upper bound
+                                    float(task.get("Finish", 0.0) / self.init_ub),            # 7. end time as percentage of upper bound
+                                    float(self.indirect_successors[i] / self.n_tasks),        # 8. number of indirect successors as percentage of total tasks
+                                    scheduled_flag,                                           # 9. scheduled tast
+                                    feasible_flag,                                            # 10. feasibility flag
+                                    current_progress,                                         # 11. progress ratio
+                                    std_Lb]                                                   # 12. standardized lower bound
+                feature_vector.extend([float(v) for v in past_vector])                        # 13->18. past visit vector (min, Q1, median, Q3, max of Cmax + nb visits)
                 op_features.append(feature_vector)
             else:
                 op_features.append([0.0 for _ in range(self.TASK_FEATURES)])
