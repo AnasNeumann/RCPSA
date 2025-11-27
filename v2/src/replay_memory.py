@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 import torch
 from torch import Tensor
 from torch_geometric.data import HeteroData
@@ -12,26 +14,35 @@ __author__  = "Anas Neumann - anas.neumann@polymtl.ca"
 __version__ = "1.0.0"
 __license__ = "MIT License"
 
+@dataclass
+class PossibleAction:
+    id: int
+    lb: int
+
+    def __repr__(self):
+        return f'PA(id={self.id}, lb={self.lb})'
+
 class Transition:
     """
         One transition in the DRL MEMORY TREE
     """
-    def __init__(self, action: Tensor, previous_graph: HeteroData, graph: HeteroData, delta_duration: int, lb: int, ub: int, delta_lb: int, delta_ub :int, parent=None):
-        self.action: Tensor             = action
-        self.graph: HeteroData          = graph.clone().to('cpu')
-        self.delta_lb: int              = delta_lb
-        self.delta_ub: int              = delta_ub
-        self.ub: int                    = ub
-        self.lb: int                    = lb
-        self.previous_graph: HeteroData = previous_graph.clone().to('cpu')
-        self.delta_duration: int        = delta_duration
-        self.parent: Transition         = parent
-        self.in_memory: bool            = False
-        self.reward: Tensor             = None
-        self.makespan: int              = 0
-        self.nb_visits: int             = 1
-        self.makespans: list[int]       = []
-        self.next: list[Transition]     = []
+    def __init__(self, action: Tensor, previous_graph: HeteroData, graph: HeteroData, delta_duration: int, lb: int, ub: int, delta_lb: int, delta_ub :int, possible_actions: list[PossibleAction], parent=None):
+        self.action: Tensor               = action
+        self.graph: HeteroData            = graph.clone().to('cpu')
+        self.delta_lb: int                = delta_lb
+        self.delta_ub: int                = delta_ub
+        self.ub: int                      = ub
+        self.lb: int                      = lb
+        self.previous_graph: HeteroData   = previous_graph.clone().to('cpu')
+        self.delta_duration: int          = delta_duration
+        self.parent: Transition           = parent
+        self.in_memory: bool              = False
+        self.reward: Tensor               = None
+        self.makespan: int                = 0
+        self.nb_visits: int               = 1
+        self.possible_actions: list[PossibleAction] = possible_actions
+        self.makespans: list[int]         = []
+        self.next: list[Transition]       = []
         if parent is not None and self not in parent.next:
             self.parent.next.append(self)
 

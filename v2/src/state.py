@@ -5,6 +5,7 @@ import math
 from collections import deque
 import networkx as nx
 import numpy as np
+import copy
 
 import torch
 from torch import device as Device
@@ -14,7 +15,7 @@ from torch_geometric.utils import to_networkx
 from v2.conf import O, P, D, R, S
 from v2.src.scheduling_functions import find_possible_start_day_for_task
 from v2.src.instance_reader import khan_topological_sort
-from v2.src.replay_memory import Transition
+from v2.src.replay_memory import Transition, PossibleAction
 
 # ===========================================
 # =*= Model file for an Hyper-Graph State =*=
@@ -24,7 +25,7 @@ __version__ = "1.0.0"
 __license__ = "MIT License"
 
 class State():
-    TASK_FEATURES: int     = 18
+    TASK_FEATURES: int     = 19
     RESOURCE_FEATURES: int = 2
     DEMAND_FEATURES: int   = 1
 
@@ -63,113 +64,139 @@ class State():
     @classmethod
     def from_empty_solution(cls, s, tasks: list, resources: list):
         return State(device=s.device, p_id=s.id, p_make_span=0, p_tasks=tasks, p_resources=resources, p_scheduled_tasks=[], std_durations=s.std_durations, lower_bound=s.lower_bound, init_lb=s.init_lb, upper_bound=s.upper_bound, init_ub=s.init_ub, indirect_successors=s.indirect_successors, critical_path=s.critical_path, max_duration=s.max_duration)
- 
-    def get_possible_dates(self, tasks: list[dict], resources: list[tuple[int, int]], task: dict, ub: int) -> dict:
+
+    def compute_lower_bound(self) -> int:
         """
-            Get possible dates for a task
+            Combines LB_CPM - Critical Path Method (Longest path based on precedence) and LB_RES - Resource Capacity Bound (Volume of work / Capacity)
         """
-        min_start_day   = 0
-        predecessor_ids = task["Predecessors"]
-        predecessors    = [t for t in tasks if t['Id'] in predecessor_ids]
-        for predecessor in predecessors:
-            if predecessor["Finish"] >= min_start_day:
-                min_start_day = predecessor["Finish"] + (not (not (predecessor["Duration"] * task["Duration"])))
-        start_day = find_possible_start_day_for_task(tasks, resources, task, min_start_day, ub)
-        return start_day, start_day + task["Duration"] - (not (not (task["Duration"])))
-    
-    def _precedence_only_critical_path(self) -> int:
-        # Earliest times ignoring resources, no fixed Start/Finish enforced.
-        task_map = {t["Id"]: t for t in self.tasks}
-        order = khan_topological_sort(self.tasks)
-        EF = {tid: 0 for tid in task_map}
-        for tid in order:
-            t = task_map[tid]
-            es = 0 if not t["Predecessors"] else max(EF[p] for p in t["Predecessors"])
-            EF[tid] = es + t["Duration"]
-        return max(EF.values()) if EF else 0
-    
-    def compute_lower_bound(self):
-        durations    = [t["Duration"] for t in self.tasks]
-        predecessors = [t["Predecessors"] for t in self.tasks]
-        successors   = [[] for _ in range(self.n_tasks)]
-        in_degree    = [0] * self.n_tasks
-        dp           = [0] * self.n_tasks
-        for i in range(self.n_tasks):
-            for pred in predecessors[i]:
-                successors[pred].append(i)
-                in_degree[i] += 1
-        queue = deque()
-        for i in range(self.n_tasks):
-            finish_time = self.tasks[i].get("Finish", 0)
-            if finish_time > 0:
-                dp[i] = finish_time
+        es = {}
+        scheduled_set = set(self.scheduled_tasks)
+        remaining_work = {} 
+        in_degree = {t["Id"]: 0 for t in self.tasks}
+        graph = {t["Id"]: [] for t in self.tasks}
+        for t in self.tasks:
+            tid = t["Id"]
+            for pid in t["Predecessors"]: # Build adjacency graph
+                graph[pid].append(tid)
+                in_degree[tid] += 1
+            if tid in scheduled_set:
+                es[tid] = t.get("Finish", 0) 
             else:
-                _, possible_end = self.get_possible_dates(
-                    self.tasks,
-                    self.resources,
-                    self.tasks[i],
-                    self.make_span)
-                dp[i] = possible_end
-            if in_degree[i] == 0:
-                queue.append(i)
+                es[tid] = 0
+                reqs = t.get("GlobalResources", []) 
+                for r_idx, amount in enumerate(reqs):
+                    if amount > 0:
+                        term = t["Duration"] * amount
+                        remaining_work[r_idx] = remaining_work.get(r_idx, 0) + term
+        queue = deque([t["Id"] for t in self.tasks if in_degree[t["Id"]] == 0])
+        max_cpm = 0
+        min_unscheduled_es = float('inf') # The earliest any unscheduled task can theoretically start
         while queue:
-            u = queue.popleft()
-            for v in successors[u]:
-                candidate = dp[u] + durations[v]
-                dp[v] = max(dp[v], candidate)
-                scheduled_finish = self.tasks[v].get("Finish", 0)
-                if scheduled_finish > dp[v]:
-                    dp[v] = scheduled_finish
-                if self.tasks[v].get("Finish", 0) == 0:
-                    _, possible_end = self.get_possible_dates(
-                        self.tasks,
-                        self.resources,
-                        self.tasks[v],
-                        self.make_span)
-                    dp[v] = max(dp[v], possible_end)
-                in_degree[v] -= 1
-                if in_degree[v] == 0:
-                    queue.append(v)
-        return max(dp)
+            u_id = queue.popleft()
+            current_finish_u = es[u_id]
+            if u_id not in scheduled_set:
+                task_u = self.get_task(u_id)
+                current_finish_u += task_u["Duration"]
+                min_unscheduled_es = min(min_unscheduled_es, es[u_id])
+            max_cpm = max(max_cpm, current_finish_u)
+            for v_id in graph[u_id]: # For each neighbor
+                if es[v_id] < current_finish_u:
+                    es[v_id] = current_finish_u
+                in_degree[v_id] -= 1
+                if in_degree[v_id] == 0:
+                    queue.append(v_id)
+        lb_res = 0
+        if min_unscheduled_es != float('inf'):
+            max_load_duration = 0
+            capacities = self.resources 
+            for r_idx, work in remaining_work.items():
+                cap = capacities[r_idx]
+                if cap > 0:
+                    load_duration = math.ceil(work / cap)
+                    if load_duration > max_load_duration:
+                        max_load_duration = load_duration
+            lb_res = min_unscheduled_es + max_load_duration
+        return max(max_cpm, lb_res)
 
     def compute_upper_bound(self, priority: str = "slack") -> int:
         """
             Compute a feasible upper bound on the makespan using a serial schedule
             generation scheme from the current partial schedule.
         """
-        tasks = copy.deepcopy(self.tasks)
-        scheduled = set(self.scheduled_tasks)
-        ub = max((t.get("Finish", 0) for t in tasks), default=0)
-        horizon = ub + sum(t["Duration"] for t in tasks if t["Id"] not in scheduled)
-        horizon = max(horizon, ub + 1)  # ensure search window is non-zero
-
-        while len(scheduled) < self.n_tasks:
-            feasible = [t for t in tasks if t["Id"] not in scheduled and all(p in scheduled for p in t["Predecessors"])]
-            if not feasible:
+        task_finish = {t["Id"]: t.get("Finish", 0) for t in self.tasks if t["Id"] in self.scheduled_tasks}
+        in_degree = {t["Id"]: len(t["Predecessors"]) for t in self.tasks}
+        for t in self.tasks:
+            if t["Id"] not in self.scheduled_tasks:
+                current_preds = [p for p in t["Predecessors"] if p in task_finish]
+                in_degree[t["Id"]] -= len(current_preds)
+        usage_profile = {} 
+        for t_id in self.scheduled_tasks:
+            t        = self.get_task(t_id)
+            start    = t.get("Start", 0)
+            duration = t["Duration"]
+            reqs     = t.get("GlobalResources", []) 
+            for time in range(start, start + duration):
+                if time not in usage_profile: usage_profile[time] = {}
+                for r_idx, amount in enumerate(reqs):
+                    usage_profile[time][r_idx] = usage_profile[time].get(r_idx, 0) + amount
+        eligible = []
+        for t in self.tasks:
+            if t["Id"] not in self.scheduled_tasks and in_degree[t["Id"]] == 0:
+                eligible.append(t)
+        current_makespan = max(task_finish.values(), default=0)
+        scheduled_count  = len(self.scheduled_tasks)
+        capacities       = self.resources 
+        while scheduled_count < self.n_tasks:
+            if not eligible:
                 break
-
             if priority == "duration":
-                feasible.sort(key=lambda t: (-t["Duration"], t["ES"]))
+                eligible.sort(key=lambda t: (-t["Duration"], t["ES"]))
             elif priority == "successors":
-                feasible.sort(key=lambda t: (-len(t["Successors"]), -t["Duration"]))
-            else:  # default: schedule the most critical (smallest slack) first
-                feasible.sort(key=lambda t: (t["LS"] - t["ES"], -t["Duration"]))
+                eligible.sort(key=lambda t: (-len(t["Successors"]), -t["Duration"]))
+            else: # slack
+                eligible.sort(key=lambda t: (t["LS"] - t["ES"], -t["Duration"]))
+            task     = eligible.pop(0) 
+            duration = task["Duration"]
+            reqs     = task.get("GlobalResources", [])
+            pred_finish_time = 0
+            for p_id in task["Predecessors"]:
+                f = task_finish.get(p_id, 0)
+                if f > pred_finish_time:
+                    pred_finish_time = f
+            start_time = pred_finish_time
+            if duration > 0:
+                while True:
+                    feasible = True
+                    for t in range(start_time, start_time + duration):
+                        current_usage = usage_profile.get(t, {})
+                        for r_idx, amount in enumerate(reqs):
+                            if amount > 0:
+                                used = current_usage.get(r_idx, 0)
+                                cap  = capacities[r_idx] 
+                                if used + amount > cap:
+                                    feasible = False
+                                    break
+                        if not feasible:
+                            break
+                    if feasible:
+                        break
+                    start_time += 1
+            finish_time             = start_time + duration
+            task_finish[task["Id"]] = finish_time
+            current_makespan        = max(current_makespan, finish_time)
+            if duration > 0:
+                for t in range(start_time, finish_time):
+                    if t not in usage_profile: usage_profile[t] = {}
+                    for r_idx, amount in enumerate(reqs):
+                        if amount > 0:
+                            usage_profile[t][r_idx] = usage_profile[t].get(r_idx, 0) + amount
+            for succ_id in task["Successors"]:
+                in_degree[succ_id] -= 1
+                if in_degree[succ_id] == 0:
+                    eligible.append(self.get_task(succ_id))
+            scheduled_count += 1
+        return current_makespan
 
-            task = feasible[0]
-            start, finish = self.get_possible_dates(tasks, self.resources, task, horizon)
-            if start < 0:
-                horizon += task["Duration"]
-                start, finish = self.get_possible_dates(tasks, self.resources, task, horizon)
-                if start < 0:
-                    return horizon
-
-            task["Start"] = start
-            task["Finish"] = finish
-            scheduled.add(task["Id"])
-            ub = max(ub, finish)
-
-        return ub
-    
     def _compute_standard_durations(self):
         """
             Durations of tasks measured as a percentage between the min and max duration
@@ -221,7 +248,7 @@ class State():
                     return cp
         return []
     
-    def to_hyper_graph(self, possible_actions: list[dict], transitions: list[Transition] = []) -> HeteroData:
+    def to_hyper_graph(self, possible_actions: list[PossibleAction], transitions: list[Transition] = []) -> HeteroData:
         """
             Convert the state to a hypergraph representation
         """
@@ -229,7 +256,9 @@ class State():
 
         # 1. Operation nodes
         op_features: list = []
+        current_progress: float = (len(self.scheduled_tasks) + 1) / len(self.tasks)
         for i, task in enumerate(self.tasks):
+            
             if task["Duration"] > 0:
                 past_vector: list = [0.0 for _ in range(6)]
                 if transitions:
@@ -245,23 +274,25 @@ class State():
                                 math.log1p(transition.nb_visits)
                             ]
                             break
+                possible: bool            = task["Id"] in [a.id for a in possible_actions]
+                std_Lb: float             = self.lower_bound / self.init_ub if possible else 1.0
                 scheduled_flag: float     = 1.0 if task["Id"] in self.scheduled_tasks else 0.0
-                feasible_flag: float      = 1.0 if task["Id"] in [t["Id"] for t in possible_actions] else 0.0
+                feasible_flag: float      = 1.0 if possible else 0.0
                 remaining_duration: float = max(task["Finish"] - self.make_span, 0.0) / task["Duration"] if task["Id"] in self.scheduled_tasks else 1.0
-                remaining_duration: float = max(task["Finish"] - self.make_span, 0.0) / task['Duration'] if task["Id"] in self.scheduled_tasks else task['Duration']
                 feature_vector = [float(self.std_durations[i]),                               # 1. duration as non-zero percentage of max duration
                                     float(task["ES"] / self.init_ub),                         # 2. earliest start time as percentage of upper bound
                                     float(task["LS"] / self.init_ub),                         # 3. latest start time as percentage of upper bound
                                     float(task["EF"] / self.init_ub),                         # 4. earliest finish time as percentage of upper bound
-                                    float(1.0 if task["Id"] in self.critical_path else 0.0),  # 5. is the task part of the critical path or not?
+                                    1.0 if task["Id"] in self.critical_path else 0.0,         # 5. is the task part of the critical path or not?
                                     float(remaining_duration),                                # 6. remaining duration as percentage of task duration
                                     float(task.get("Start", 0.0) / self.init_ub),             # 7. start time as percentage of upper bound
                                     float(task.get("Finish", 0.0) / self.init_ub),            # 8. end time as percentage of upper bound
                                     float(self.indirect_successors[i] / self.n_tasks),        # 9. number of indirect successors as percentage of total tasks
-                                    float(scheduled_flag),                                    # 10. scheduled tast
-                                    float(feasible_flag),                                     # 11. feasibility flag
-                                    float((len(self.scheduled_tasks) + 1) / len(self.tasks))] # 12. progress ratio
-                feature_vector.extend([float(v) for v in past_vector])                        # 13->18. past visit vector (min, Q1, median, Q3, max of Cmax + nb visits)
+                                    scheduled_flag,                                           # 10. scheduled tast
+                                    feasible_flag,                                            # 11. feasibility flag
+                                    current_progress,                                         # 12. progress ratio
+                                    std_Lb]                                                   # 13. standardized lower bound
+                feature_vector.extend([float(v) for v in past_vector])                        # 14->19. past visit vector (min, Q1, median, Q3, max of Cmax + nb visits)
                 op_features.append(feature_vector)
             else:
                 op_features.append([0.0 for _ in range(self.TASK_FEATURES)])
