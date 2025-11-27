@@ -263,7 +263,6 @@ class State():
         op_features: list = []
         current_progress: float = (len(self.scheduled_tasks) + 1) / len(self.tasks)
         for i, task in enumerate(self.tasks):
-            
             if task["Duration"] > 0:
                 past_vector: list = [0.0 for _ in range(6)]
                 if transitions:
@@ -276,13 +275,16 @@ class State():
                                 float(np.median(cmaxs)/ self.init_ub),
                                 float(np.percentile(cmaxs, 75)/ self.init_ub),
                                 float(np.max(cmaxs)/ self.init_ub),
-                                math.log1p(transition.nb_visits)
-                            ]
+                                math.log1p(transition.nb_visits)]
                             break
-                possible: bool            = task["Id"] in [a.id for a in possible_actions]
-                std_Lb: float             = self.lower_bound / self.init_ub if possible else 1.0
+                std_Lb: float        = 1.0
+                feasible_flag: float = 0.0
+                for a in possible_actions:
+                    if a.id == task["Id"]:
+                        std_Lb        = float(a.lb / self.init_ub)
+                        feasible_flag = 1.0
+                        break
                 scheduled_flag: float     = 1.0 if task["Id"] in self.scheduled_tasks else 0.0
-                feasible_flag: float      = 1.0 if possible else 0.0
                 remaining_duration: float = max(task["Finish"] - self.make_span, 0.0) / task["Duration"] if task["Id"] in self.scheduled_tasks else 1.0
                 feature_vector = [float(self.std_durations[i]),                               # 1. duration as non-zero percentage of max duration
                                     float(task["ES"] / self.init_ub),                         # 2. earliest start time as percentage of upper bound
