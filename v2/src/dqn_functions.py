@@ -44,15 +44,15 @@ def ssgs(tasks: list[dict], resources: list[tuple[int, int]], task: dict, ub: in
         Find the earliest feasible start day for a task using the Serial Schedule Generation Scheme (SSGS)
         Return the task with updated "Start" and "Finish" fields (or -1 if not possible within the horizon)
     """
-    min_start_day = 1
+    min_start_day   = 0
     predecessor_ids = task["Predecessors"]
-    predecessors = [t for t in tasks if t['Id'] in predecessor_ids]
+    predecessors    = [t for t in tasks if t['Id'] in predecessor_ids]
     for predecessor in predecessors:
         if predecessor["Finish"] >= min_start_day:
             min_start_day = predecessor["Finish"] + (not (not (predecessor["Duration"] * task["Duration"])))
     start_day = find_possible_start_day_for_task(tasks, resources, task, min_start_day, ub)
     if start_day > 0:
-        task["Start"] = start_day
+        task["Start"]  = start_day
         task["Finish"] = start_day + task["Duration"] - (not (not (task["Duration"])))
     return task
 
