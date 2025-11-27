@@ -69,11 +69,11 @@ class Transition:
 
     def revisit(self, t: 'Transition'):
         self.nb_visits += 1
+        self.graph      = t.graph
         self.makespans.append(t.makespan)
         if self.makespan >= t.makespan:
             self.reward   = t.reward
             self.makespan = t.makespan
-            self.graph    = t.graph
 
 class ITree:
     """
