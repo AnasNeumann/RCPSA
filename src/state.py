@@ -29,17 +29,17 @@ class State():
     RESOURCE_FEATURES: int = 2
     DEMAND_FEATURES: int   = 1
 
-    def __init__(self, device: Device, p_id: str="", p_make_span: int=0, p_tasks: list=[], p_resources: list=[], p_scheduled_tasks: list=[], std_durations: list = [], lower_bound: int = 0, init_lb: int = 0, upper_bound: int = 0, init_ub: int = 0, indirect_successors: list = [], critical_path: list = [], max_duration: int = 0):
+    def __init__(self, device: Device, p_id: str="", p_make_span: int=0, p_tasks: list=[], p_resources: list=[], p_scheduled_tasks: list=[], std_durations: list = [], lower_bound: int = 0, init_lb: int = 0, upper_bound: int = 0, init_ub: int = 0, indirect_successors: list = [], critical_path: list = [], max_duration: int = 0, deep_cpy: bool = True):
         self.id: str                   = p_id
         self.device                    = device
         self.done: bool                = False
         self.make_span: int            = p_make_span
         self.reward: int               = -100000
-        self.tasks: list               = copy.deepcopy(p_tasks)
-        self.resources: list           = copy.deepcopy(p_resources)
+        self.tasks: list               = copy.deepcopy(p_tasks) if deep_cpy else p_tasks
+        self.resources: list           = copy.deepcopy(p_resources) if deep_cpy else p_resources
         self.n_tasks: int              = len(self.tasks)
         self.n_resources: int          = len(self.resources)
-        self.scheduled_tasks: list     = copy.deepcopy(p_scheduled_tasks)
+        self.scheduled_tasks: list     = copy.deepcopy(p_scheduled_tasks) if deep_cpy else p_scheduled_tasks
         self.indirect_successors: list = indirect_successors if indirect_successors else self._compute_num_indirect_successors()
         self.critical_path             = critical_path if critical_path else self.extract_critical_path()
         if std_durations:
@@ -55,15 +55,15 @@ class State():
 
     @classmethod
     def from_partial_solution(cls, s):
-        return State(device=s.device, p_id=s.id, p_make_span=s.make_span, p_tasks=s.tasks, p_resources=s.resources, p_scheduled_tasks=s.scheduled_tasks, std_durations=s.std_durations, lower_bound=s.lower_bound, init_lb=s.init_lb, upper_bound=s.upper_bound, init_ub=s.init_ub, indirect_successors=s.indirect_successors, critical_path=s.critical_path, max_duration=s.max_duration)
+        return State(device=s.device, p_id=s.id, p_make_span=s.make_span, p_tasks=s.tasks, p_resources=s.resources, p_scheduled_tasks=s.scheduled_tasks, std_durations=s.std_durations, lower_bound=s.lower_bound, init_lb=s.init_lb, upper_bound=s.upper_bound, init_ub=s.init_ub, indirect_successors=s.indirect_successors, critical_path=s.critical_path, max_duration=s.max_duration, deep_cpy=False)
 
     @classmethod
     def from_problem(cls, tasks: list, resources: list, device: Device, makespan: int = math.inf):
-        return State(device=device, p_id="", p_make_span=makespan, p_tasks=tasks, p_resources=resources, p_scheduled_tasks=[], std_durations=[], lower_bound=0, init_lb=0, upper_bound=0, init_ub=0, indirect_successors=[], critical_path=[], max_duration=0)
+        return State(device=device, p_id="", p_make_span=makespan, p_tasks=tasks, p_resources=resources, p_scheduled_tasks=[], std_durations=[], lower_bound=0, init_lb=0, upper_bound=0, init_ub=0, indirect_successors=[], critical_path=[], max_duration=0, deep_cpy=True)
 
     @classmethod
     def from_empty_solution(cls, s, tasks: list, resources: list):
-        return State(device=s.device, p_id=s.id, p_make_span=0, p_tasks=tasks, p_resources=resources, p_scheduled_tasks=[], std_durations=s.std_durations, lower_bound=s.lower_bound, init_lb=s.init_lb, upper_bound=s.upper_bound, init_ub=s.init_ub, indirect_successors=s.indirect_successors, critical_path=s.critical_path, max_duration=s.max_duration)
+        return State(device=s.device, p_id=s.id, p_make_span=0, p_tasks=tasks, p_resources=resources, p_scheduled_tasks=[], std_durations=s.std_durations, lower_bound=s.lower_bound, init_lb=s.init_lb, upper_bound=s.upper_bound, init_ub=s.init_ub, indirect_successors=s.indirect_successors, critical_path=s.critical_path, max_duration=s.max_duration, deep_cpy=True)
 
     def compute_lower_bound(self) -> int:
         """

@@ -66,29 +66,66 @@ def build_impossible_state(impossible_state: State, task: dict):
     impossible_state.make_span = INFINITY
     impossible_state.reward = -INFINITY
     impossible_state.done = True
-    return impossible_state
 
-def take_step(state: State, action: int) -> State:
+class HypotheticalStep:
+    """
+        Context manager to temporarily apply a task to the state, 
+        compute metrics, and revert the state exactly as it was.
+    """
+    def __init__(self, state: State, task_id: int):
+        self.state: State        = state
+        self.task_id: int        = task_id
+        self.task: dict          = None
+        self.old_start: int      = 0
+        self.old_finish: int     = 0
+        self.old_makespan: int   = state.make_span
+        self.was_scheduled: bool = False
+        self.success: bool       = False
+
+    def __enter__(self):
+        self.task       = next(t for t in self.state.tasks if t["Id"] == self.task_id)
+        self.old_start  = self.task.get("Start", 0)
+        self.old_finish = self.task.get("Finish", 0)
+        feasible = True
+        for p_id in self.task["Predecessors"]:
+            if p_id not in self.state.scheduled_tasks:
+                feasible = False
+                break
+        if feasible:
+            updated_task = ssgs(self.state.tasks, self.state.resources, self.task, 10000)
+            if updated_task["Start"] > 0:
+                self.state.scheduled_tasks.append(self.task_id)
+                self.state.make_span = max(self.state.make_span, updated_task["Finish"])
+                self.was_scheduled   = True
+                self.success         = True     
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.was_scheduled:
+            self.state.scheduled_tasks.pop()
+            self.state.make_span = self.old_makespan
+            self.task["Start"]   = self.old_start
+            self.task["Finish"]  = self.old_finish
+
+def take_step(state: State, action: int):
     """
         Take a step in the environment by selecting an action (task) to schedule
     """
-    new_state: State = State.from_partial_solution(state)
     try:
-        task = [t for t in new_state.tasks if t["Id"] == action][0]
+        task = [t for t in state.tasks if t["Id"] == action][0]
     except:
         print(f"{action} not found")
         exit()
     feasible: bool = check_precedence_feasibility(state, task)
-    task = ssgs(new_state.tasks, new_state.resources, task, 10000)
+    task: dict     = ssgs(state.tasks, state.resources, task, 10000)
     if not feasible or task["Start"] <= 0:
-        new_state = build_impossible_state(new_state, task)
+        build_impossible_state(state, task)
     else:
-        new_state.scheduled_tasks.append(task["Id"])
-        new_state.id = f'{new_state.id}_{task["Id"]}' if task["Id"] > 0 else f'{task["Id"]}'
-        new_state.make_span = max(new_state.make_span, task["Finish"])
-        if len(new_state.scheduled_tasks) == len(new_state.tasks):
-            new_state.done = True
-    return new_state
+        state.scheduled_tasks.append(task["Id"])
+        state.id = f'{state.id}_{task["Id"]}' if task["Id"] > 0 else f'{task["Id"]}'
+        state.make_span = max(state.make_span, task["Finish"])
+        if len(state.scheduled_tasks) == len(state.tasks):
+            state.done = True
 
 mps_amp = (torch.autocast(device_type="mps", dtype=torch.float16) if torch.backends.mps.is_available() else nullcontext())
 

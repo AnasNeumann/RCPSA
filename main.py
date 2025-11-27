@@ -10,6 +10,7 @@ import numpy as np
 import torch
 from torch import Tensor
 from torch.optim import AdamW
+from torch_geometric.data import HeteroData
 
 from conf import INTERACTIVE, LR, NB_EPISODES, EPS_DECAY, EPS_END, EPS_START, GREEDY_RATE, TOP_K, INFINITY
 from src.common import display_final_computing_time
@@ -18,7 +19,7 @@ from src.neural_nets import HyperGraphGNN
 from src.replay_memory import Transition, Memory, ITree, PossibleAction
 from src.tracker import Tracker
 from src.instance_reader import build_instance
-from src.dqn_functions import optimize_policy_net, optimize_target_net, select_action, take_step
+from src.dqn_functions import optimize_policy_net, optimize_target_net, select_action, take_step, HypotheticalStep
 from src.scheduling_functions import find_feasible_tasks
 
 # ================================
@@ -52,13 +53,13 @@ def search_possible_actions(state: State, current_transition: Transition, best_k
         return current_transition.possible_actions
     else:
         possible_actions: list[PossibleAction] = []
-        feasible_tasks: list[dict] = find_feasible_tasks(state.tasks, state.scheduled_tasks)
-        for task in feasible_tasks: 
-            _next_state = take_step(state=state, action=task["Id"])
-            if _next_state.make_span < INFINITY:
-                lb: int    = _next_state.compute_lower_bound()
-                if lb <= best_known_Cmax or not remove_bad_LB_banches:
-                    possible_actions.append(PossibleAction(id=task["Id"], lb=lb))
+        feasible_tasks: list[dict]             = find_feasible_tasks(state.tasks, state.scheduled_tasks)
+        for task in feasible_tasks:
+            with HypotheticalStep(state, task["Id"]) as step:
+                if step.success:
+                    lb: int = state.compute_lower_bound()
+                    if lb <= best_known_Cmax or not remove_bad_LB_banches:
+                        possible_actions.append(PossibleAction(id=task["Id"], lb=lb))
         return possible_actions
 
 def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
@@ -115,28 +116,26 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                 transition        = _TREE.search_transition(action=_action_idx.item(), current_transition=transition)
                 _search_transition = transition is not None
             _steps                += 1
-            _next_state            = take_step(state=_state, action=_action_idx.item())
-            possible_actions       = search_possible_actions(state=_next_state, current_transition=transition, best_known_Cmax=Cmax, remove_bad_LB_banches=False)
-            if not possible_actions and not _next_state.done:
+            take_step(state=_state, action=_action_idx.item())
+            possible_actions       = search_possible_actions(state=_state, current_transition=transition, best_known_Cmax=Cmax, remove_bad_LB_banches=False)
+            if not possible_actions and not _state.done:
                 print(f"-> ERROR: No possible actions with lower bound < current best Cmax ({Cmax})!")
                 break
-            _next_state.graph      = _next_state.to_hyper_graph(possible_actions=possible_actions, transitions=transition.next if transition is not None else [])
-            _next_lb: int          = _next_state.compute_lower_bound()
-            _next_ub: int          = _next_state.compute_upper_bound()
-            _delta_LB: int         = _next_lb - _prev_lb
-            _delta_UB: int         = _next_ub - _prev_ub
+            _next_graph: HeteroData = _state.to_hyper_graph(possible_actions=possible_actions, transitions=transition.next if transition is not None else [])
+            _state.lower_bound      = _state.compute_lower_bound()
+            _state.upper_bound      = _state.compute_upper_bound()
             _transitions_in_episode.append(Transition(action=_action_idx, 
                                                       previous_graph=_state.graph, 
-                                                      graph=_next_state.graph, 
-                                                      lb=_next_lb, 
-                                                      delta_lb=_delta_LB, 
-                                                      ub=_next_ub, 
-                                                      delta_ub=_delta_UB, 
+                                                      graph=_next_graph, 
+                                                      lb=_state.lower_bound, 
+                                                      delta_lb=_state.lower_bound - _prev_lb, 
+                                                      ub=_state.upper_bound, 
+                                                      delta_ub=_state.upper_bound - _prev_ub, 
                                                       possible_actions=possible_actions,
                                                       parent=_transitions_in_episode[-1] if _transitions_in_episode else None))
-            _state                 = _next_state
-            _prev_lb               = _next_lb
-            _prev_ub               = _next_ub
+            _state.graph = _next_graph  
+            _prev_lb     = _state.lower_bound
+            _prev_ub     = _state.upper_bound
 
             # END OF EPISODE
             if _state.done:
