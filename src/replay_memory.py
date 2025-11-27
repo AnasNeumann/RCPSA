@@ -26,7 +26,7 @@ class Transition:
     """
         One transition in the DRL MEMORY TREE
     """
-    def __init__(self, action: Tensor, previous_graph: HeteroData, graph: HeteroData, delta_duration: int, lb: int, ub: int, delta_lb: int, delta_ub :int, possible_actions: list[PossibleAction], parent=None):
+    def __init__(self, action: Tensor, previous_graph: HeteroData, graph: HeteroData, lb: int, ub: int, delta_lb: int, delta_ub :int, possible_actions: list[PossibleAction], parent=None):
         self.action: Tensor               = action
         self.graph: HeteroData            = graph.clone().to('cpu')
         self.delta_lb: int                = delta_lb
@@ -34,7 +34,6 @@ class Transition:
         self.ub: int                      = ub
         self.lb: int                      = lb
         self.previous_graph: HeteroData   = previous_graph.clone().to('cpu')
-        self.delta_duration: int          = delta_duration
         self.parent: Transition           = parent
         self.in_memory: bool              = False
         self.reward: Tensor               = None

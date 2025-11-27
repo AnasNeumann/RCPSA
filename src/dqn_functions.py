@@ -68,7 +68,7 @@ def build_impossible_state(impossible_state: State, task: dict):
     impossible_state.done = True
     return impossible_state
 
-def take_step(state: State, action: int) -> tuple[State, dict]:
+def take_step(state: State, action: int) -> State:
     """
         Take a step in the environment by selecting an action (task) to schedule
     """
@@ -88,7 +88,7 @@ def take_step(state: State, action: int) -> tuple[State, dict]:
         new_state.make_span = max(new_state.make_span, task["Finish"])
         if len(new_state.scheduled_tasks) == len(new_state.tasks):
             new_state.done = True
-    return new_state, task
+    return new_state
 
 mps_amp = (torch.autocast(device_type="mps", dtype=torch.float16) if torch.backends.mps.is_available() else nullcontext())
 

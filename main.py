@@ -54,7 +54,7 @@ def search_possible_actions(state: State, current_transition: Transition, best_k
         possible_actions: list[PossibleAction] = []
         feasible_tasks: list[dict] = find_feasible_tasks(state.tasks, state.scheduled_tasks)
         for task in feasible_tasks: 
-            _next_state, _ = take_step(state=state, action=task["Id"])
+            _next_state = take_step(state=state, action=task["Id"])
             if _next_state.make_span < INFINITY:
                 lb: int    = _next_state.compute_lower_bound()
                 if lb <= best_known_Cmax or not remove_bad_LB_banches:
@@ -115,7 +115,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                 transition        = _TREE.search_transition(action=_action_idx.item(), current_transition=transition)
                 _search_transition = transition is not None
             _steps                += 1
-            _next_state, task      = take_step(state=_state, action=_action_idx.item())
+            _next_state            = take_step(state=_state, action=_action_idx.item())
             possible_actions       = search_possible_actions(state=_next_state, current_transition=transition, best_known_Cmax=Cmax, remove_bad_LB_banches=False)
             if not possible_actions and not _next_state.done:
                 print(f"-> ERROR: No possible actions with lower bound < current best Cmax ({Cmax})!")
@@ -125,7 +125,6 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
             _next_ub: int          = _next_state.compute_upper_bound()
             _delta_LB: int         = _next_lb - _prev_lb
             _delta_UB: int         = _next_ub - _prev_ub
-            _delta_duration: int   = max(0, _next_state.make_span - _state.make_span + task["Duration"])
             _transitions_in_episode.append(Transition(action=_action_idx, 
                                                       previous_graph=_state.graph, 
                                                       graph=_next_state.graph, 
@@ -133,7 +132,6 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                                                       delta_lb=_delta_LB, 
                                                       ub=_next_ub, 
                                                       delta_ub=_delta_UB, 
-                                                      delta_duration=_delta_duration, 
                                                       possible_actions=possible_actions,
                                                       parent=_transitions_in_episode[-1] if _transitions_in_episode else None))
             _state                 = _next_state
