@@ -78,9 +78,7 @@ def search_possible_actions(state: State, current_transition: Transition, best_C
         for task in feasible_tasks:
             with HypotheticalStep(state, task["Id"]) as step:
                 if step.success:
-                    lb: int = state.compute_lower_bound()
-                    if lb < best_Cmax or not cut_bad_branches:
-                        possible_actions.append(PossibleAction(id=task["Id"], lb=lb, ub=state.compute_upper_bound()))
+                    possible_actions.append(PossibleAction(id=task["Id"], lb=state.compute_lower_bound(), ub=state.compute_upper_bound()))
         return possible_actions
 
 def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
