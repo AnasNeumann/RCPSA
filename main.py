@@ -67,7 +67,7 @@ def search_possible_actions(state: State, current_transition: Transition, best_C
         Search for possible action, but also cut bad branches and update parent LB
     """
     if current_transition is not None:
-        current_transition.refine_from_possible_children()
+        current_transition.refine_from_possible_children(state.init_lb, state.init_ub)
         if cut_bad_branches:
             current_transition.possible_actions = [a for a in current_transition.possible_actions if a.lb < best_Cmax]
         return current_transition.possible_actions
@@ -151,8 +151,8 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                                                       graph=_next_graph, 
                                                       lb=_state.lower_bound, 
                                                       delta_lb=_state.lower_bound - _prev_lb, 
-                                                      ub=_state.upper_bound, 
-                                                      delta_ub=_state.upper_bound - _prev_ub, 
+                                                      ub=_state.upper_bound,
+                                                      delta_ub=_prev_ub - _state.upper_bound, 
                                                       possible_actions=possible_actions,
                                                       parent=_transitions_in_episode[-1] if _transitions_in_episode else None))
             _state.graph = _next_graph  

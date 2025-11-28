@@ -77,11 +77,11 @@ class Transition:
             self.reward   = t.reward
             self.makespan = t.makespan
 
-    def refine_from_possible_children(self):
-        self.lb               = min(a.lb for a in self.possible_children)
-        self.ub               = min(a.ub for a in self.possible_children)
-        self.delta_lb         = self.lb - self.parent.lb
-        self.delta_ub         = self.ub - self.parent.ub
+    def refine_from_possible_children(self, init_lb: int, init_ub: int):
+        self.lb               = min(a.lb for a in self.possible_actions)
+        self.ub               = min(a.ub for a in self.possible_actions)
+        self.delta_lb         = (self.lb - self.parent.lb) if self.parent is not None else (self.lb - init_lb)
+        self.delta_ub         = (self.parent.ub - self.ub) if self.parent is not None else (init_ub - self.ub)
 
 class ITree:
     """
