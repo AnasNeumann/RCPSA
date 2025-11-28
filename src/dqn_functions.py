@@ -162,7 +162,7 @@ def _build_batch_indices(actions_local_indices: Tensor, nb_tasks :int, batch_siz
     actions_global_indices: Tensor = graph_offsets.view(-1, 1) + actions_local_indices
     return actions_global_indices.long()
 
-def optimize_policy_net(memory: Memory, policy_net: HyperGraphGNN, target_net: HyperGraphGNN, optimizer: AdamW, scheduler: ReduceLROnPlateau, tracker: Tracker, nb_tasks: int, device: Device):
+def optimize_policy_net(memory: Memory, policy_net: HyperGraphGNN, target_net: HyperGraphGNN, optimizer: AdamW, tracker: Tracker, nb_tasks: int, device: Device):
     """
         Optimize the polict network using the Huber loss between selected action and expected best action (based on approx Q-value)
             y = reward r + discounted factor γ x MAX_Q_VALUES(state s+1) predicted with Q_target
@@ -192,7 +192,6 @@ def optimize_policy_net(memory: Memory, policy_net: HyperGraphGNN, target_net: H
     torch.nn.utils.clip_grad_value_(policy_net.parameters(), 20)
     torch.nn.utils.clip_grad_norm_(policy_net.parameters(), 2.0)
     optimizer.step()
-    scheduler.step(loss)
     printed_loss = loss.detach().cpu().item()
     tracker.update(loss_value=printed_loss)
     return printed_loss

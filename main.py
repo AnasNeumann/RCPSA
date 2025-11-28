@@ -11,7 +11,6 @@ import torch
 from torch import Tensor
 from torch.optim import AdamW
 from torch_geometric.data import HeteroData
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from conf import INTERACTIVE, LR, NB_EPISODES, EPS_DECAY, EPS_END, EPS_START, GREEDY_RATE, TOP_K, INFINITY, MIN_LR, PATIENCE
 from src.common import display_final_computing_time
@@ -110,8 +109,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
     _TARGET_NET.load_state_dict(_POLICY_NET.state_dict())
     _POLICY_NET.train()
     _TARGET_NET.eval()
-    _OPTIMIZER: AdamW             = AdamW(_POLICY_NET.parameters(), lr=LR, amsgrad=True)
-    _SCHEDULER: ReduceLROnPlateau = ReduceLROnPlateau(_OPTIMIZER, mode='min', factor=0.5, patience=PATIENCE, min_lr=MIN_LR)
+    _OPTIMIZER: AdamW = AdamW(_POLICY_NET.parameters(), lr=LR, amsgrad=True)
     for _episode in range(1, NB_EPISODES+1):
         _e: float                                 = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * _episode / EPS_DECAY)
         transition: Transition                    = None
@@ -166,7 +164,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                 _EPSILON_TRACKER.update(_e)
                 _Cmax_TRACKER.update(_state.make_span)
                 _TREE.add_or_update_transition(transition=_transitions_in_episode[0], final_makespan=_state.make_span)
-                huber_loss: float = optimize_policy_net(memory=_REPLAY_MEMORY, policy_net=_POLICY_NET, target_net=_TARGET_NET, optimizer=_OPTIMIZER, scheduler=_SCHEDULER, tracker=_LOSS_TRACKER, nb_tasks=len(_tasks), device=_device)
+                huber_loss: float = optimize_policy_net(memory=_REPLAY_MEMORY, policy_net=_POLICY_NET, target_net=_TARGET_NET, optimizer=_OPTIMIZER, tracker=_LOSS_TRACKER, nb_tasks=len(_tasks), device=_device)
                 optimize_target_net(policy_net=_POLICY_NET, target_net=_TARGET_NET)
                 if _state.make_span < Cmax:
                     _best_state   = _state
