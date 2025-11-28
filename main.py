@@ -166,7 +166,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                 print(f"DQN Episode: {_episode} -- random_step: {diversified_step} -- Makespan: {_state.make_span} (best: {Cmax}) -- Є: {_e:.3f} -- Huber Loss: {huber_loss:.2f} -- LR: {_OPTIMIZER.param_groups[0]['lr']:.5f}")
 
                 # TIME TO FREE SOME MEMORY                
-                if _episode % 50 == 0 and _episode > 0:
+                if _episode % 100 == 0 and _episode > 0:
                     gc.collect()
                     if torch.backends.mps.is_available():
                         torch.mps.empty_cache()
