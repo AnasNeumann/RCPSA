@@ -145,8 +145,10 @@ def select_action(state: State, policy_net: HyperGraphGNN, e: float, greedy: boo
             else:
                 topk      = min(TOP_K, len(selected_values))                          # robust value     
                 vals, idx = torch.topk(selected_values.view(-1), k=topk)              # largest-Q actions
-                vals      = torch.nan_to_num(vals, nan=-1e9, posinf=1e9, neginf=-1e9) # finite
-                vals      = vals - vals.max()                                         # improves soft‑max stability
+                vals      = torch.nan_to_num(vals, nan=-1e9, posinf=1e9, neginf=-1e9) # finit
+                v_min     = vals.min()
+                v_max     = vals.max()
+                vals      = (vals - v_min) / (v_max - v_min) if (v_max - v_min) > 1e-6 else torch.zeros_like(vals) # improves soft‑max stability                                   
                 p         = torch.softmax(vals / TEMPERATURE, dim=0)                  # Boltzmann exploration
                 index     = idx[torch.multinomial(p, 1)].item()
             action        = possible_idx[index].item()

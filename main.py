@@ -30,27 +30,41 @@ __author__  = "Anas Neumann - anas.neumann@polymtl.ca"
 __version__ = "1.0.0"
 __license__ = "MIT License"
 
-def diversify(memory: ITree, current_transition: Transition, possible_actions: list[PossibleAction], device: str, best_known_Cmax: int) -> Tensor:
+def diversify(memory: ITree, current_transition: Transition, possible_actions: list[PossibleAction], device: str, best_known_Cmax: int, accept_seen: bool = False) -> tuple[Tensor, bool]:
     """
-        Select a random feasible action that has not been tried yet in the current branch of the tree
+        Select a random feasible action that has neven been tried yet in the current branch of the tree (but LB <= best_known_Cmax)
     """
-    unseen: list[PossibleAction] = []
+    unseen: list[PossibleAction]    = []
+    best_seen: list[PossibleAction] = []
+    min_seen_visits: int | None     = None
+    status: str                     = "unseen"
+    fail: bool                      = False
     for a in possible_actions:
         _next_t: Transition = memory.search_transition(action=a.id, current_transition=current_transition)
-        if _next_t is None and a.lb <= best_known_Cmax:
-            unseen.append(a)
+        if a.lb <= best_known_Cmax:
+            if _next_t is None: 
+                unseen.append(a)
+            elif accept_seen:
+                visits = _next_t.nb_visits
+                if min_seen_visits is None or visits < min_seen_visits:
+                    min_seen_visits = visits
+                    best_seen = [a]
+                elif visits == min_seen_visits:
+                    best_seen.append(a)
+    if not unseen and accept_seen:
+        status = "alreay seen"
+        unseen = best_seen
+        fail   = True
     if unseen:
-        print(len(unseen), "... unseen actions (with good lower bounds) found for diversification")
+        print(len(unseen), f"... {status} actions (with good lower bounds) found for diversification")
         unseen.sort(key=lambda a: a.lb)
         idx: int               = np.random.choice(min(TOP_K, len(unseen)))
         action: PossibleAction = unseen[idx]
-        return torch.tensor([[action.id]], device=device, dtype=torch.long), False
+        return torch.tensor([[action.id]], device=device, dtype=torch.long), fail
     return None, True
 
-def search_possible_actions(state: State, current_transition: Transition, best_known_Cmax: int, remove_bad_LB_banches: bool = False) -> list[PossibleAction]:
+def search_possible_actions(state: State, current_transition: Transition) -> list[PossibleAction]:
     if current_transition is not None:
-        if remove_bad_LB_banches: 
-            current_transition.possible_actions = [a for a in current_transition.possible_actions if a.lb <= best_known_Cmax]
         return current_transition.possible_actions
     else:
         possible_actions: list[PossibleAction] = []
@@ -59,8 +73,7 @@ def search_possible_actions(state: State, current_transition: Transition, best_k
             with HypotheticalStep(state, task["Id"]) as step:
                 if step.success:
                     lb: int = state.compute_lower_bound()
-                    if lb <= best_known_Cmax or not remove_bad_LB_banches:
-                        possible_actions.append(PossibleAction(id=task["Id"], lb=lb))
+                    possible_actions.append(PossibleAction(id=task["Id"], lb=lb))
         return possible_actions
 
 def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
@@ -84,7 +97,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
     _EPSILON_TRACKER: Tracker              = Tracker(xlabel="Episode", ylabel="epsilon", title="Diversity rate", color="black", show=interactive)
     _REPLAY_MEMORY: Memory                 = Memory(device=_device)
     _TREE: ITree                           = _REPLAY_MEMORY.add_instance_if_new(instance_name=instance_name)
-    possible_actions: list[PossibleAction] = search_possible_actions(state=_best_state, current_transition=None, best_known_Cmax=Cmax)
+    possible_actions: list[PossibleAction] = search_possible_actions(state=_best_state, current_transition=None)
     _best_state.graph                      = _best_state.to_hyper_graph(possible_actions=possible_actions, transitions=_TREE.tree_transitions)
     for param in _POLICY_NET.parameters():
         if param.dim() > 1:
@@ -99,7 +112,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
         transition: Transition                    = None
         _search_transition: bool                  = True
         _state: State                             = State.from_empty_solution(_best_state, _tasks, _resources)
-        possible_actions                          = search_possible_actions(state=_state, current_transition=None, best_known_Cmax=Cmax)
+        possible_actions                          = search_possible_actions(state=_state, current_transition=None)
         _state.graph                              = _state.to_hyper_graph(possible_actions=possible_actions, transitions=_TREE.tree_transitions)
         _prev_lb: int                             = _best_state.init_lb
         _prev_ub: int                             = _best_state.init_ub
@@ -108,7 +121,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
         for step in count():
             should_diversify: bool = _search_transition and (step == diversified_step)
             if should_diversify:
-                _action_idx, failed = diversify(memory=_TREE, current_transition=transition, possible_actions=possible_actions, device=_device, best_known_Cmax=Cmax)
+                _action_idx, failed = diversify(memory=_TREE, current_transition=transition, possible_actions=possible_actions, device=_device, best_known_Cmax=Cmax, accept_seen=_search_transition)
                 if failed:
                     should_diversify  = False
                     diversified_step += 1
@@ -119,7 +132,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                 _search_transition = transition is not None
             _steps                += 1
             take_step(state=_state, action=_action_idx.item())
-            possible_actions       = search_possible_actions(state=_state, current_transition=transition, best_known_Cmax=Cmax, remove_bad_LB_banches=False)
+            possible_actions       = search_possible_actions(state=_state, current_transition=transition)
             if not possible_actions and not _state.done:
                 print(f"-> ERROR: No possible actions with lower bound < current best Cmax ({Cmax})!")
                 break
@@ -150,7 +163,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                     _best_state   = _state
                     _best_episode = _episode
                     Cmax          = _state.make_span
-                print(f"DQN Episode: {_episode} -- random_step: {diversified_step} -- Makespan: {_state.make_span} (best: {Cmax}) -- Є: {_e:.3f} -- Huber Loss: {huber_loss:.2f}")
+                print(f"DQN Episode: {_episode} -- random_step: {diversified_step} -- Makespan: {_state.make_span} (best: {Cmax}) -- Є: {_e:.3f} -- Huber Loss: {huber_loss:.2f} -- LR: {_OPTIMIZER.param_groups[0]['lr']:.5f}")
 
                 # TIME TO FREE SOME MEMORY                
                 if _episode % 50 == 0 and _episode > 0:
