@@ -18,7 +18,7 @@ from src.common import display_final_computing_time
 from src.state import State
 from src.neural_nets import HyperGraphGNN
 from src.replay_memory import Transition, Memory, ITree, PossibleAction
-from src.tracker import Tracker, TreeTracker
+from src.tracker import Tracker
 from src.instance_reader import build_instance
 from src.dqn_functions import optimize_policy_net, optimize_target_net, select_action, take_step, HypotheticalStep
 from src.scheduling_functions import find_feasible_tasks
@@ -104,7 +104,6 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
     _EPSILON_TRACKER: Tracker              = Tracker(xlabel="Episode", ylabel="epsilon", title="Diversity rate", color="black", show=interactive)
     _REPLAY_MEMORY: Memory                 = Memory(device=_device)
     _TREE: ITree                           = _REPLAY_MEMORY.add_instance_if_new(instance_name=instance_name)
-    #_TREE_TRACKER: TreeTracker             = TreeTracker(title="GNN Search Tree", show=INTERACTIVE, update_frequency=20)
     possible_actions: list[PossibleAction] = search_possible_actions(state=_best_state, current_transition=None, best_Cmax=Cmax, cut_bad_branches=False)
     _best_state.graph                      = _best_state.to_hyper_graph(possible_actions=possible_actions, transitions=_TREE.tree_transitions)
     for param in _POLICY_NET.parameters():
@@ -168,7 +167,6 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
             if _state.done:
                 _EPSILON_TRACKER.update(_e)
                 _Cmax_TRACKER.update(_state.make_span)
-                #_TREE_TRACKER.update(transitions=_transitions_in_episode, is_best=_state.make_span<Cmax)
                 _TREE.add_or_update_transition(transition=_transitions_in_episode[0], final_makespan=_state.make_span)
                 huber_loss: float = optimize_policy_net(memory=_REPLAY_MEMORY, policy_net=_POLICY_NET, target_net=_TARGET_NET, optimizer=_OPTIMIZER, scheduler=_SCHEDULER, tracker=_LOSS_TRACKER, nb_tasks=len(_tasks), device=_device)
                 optimize_target_net(policy_net=_POLICY_NET, target_net=_TARGET_NET)
@@ -190,7 +188,6 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                     _Cmax_TRACKER.save(_saving_path + "_DRL_makespan")
                     _EPSILON_TRACKER.save(_saving_path + "_diversity")
                     _LOSS_TRACKER.save(_saving_path + "_loss")
-                    #_TREE_TRACKER.save(_saving_path)
                     torch.save(_TARGET_NET.state_dict(), _saving_path + "_target_gnn.pth")
                     torch.save(_POLICY_NET.state_dict(), _saving_path + "_policy_gnn.pth")
                     torch.save(_OPTIMIZER.state_dict(), _saving_path + "_adamw_gnn_optimizer.pth")
