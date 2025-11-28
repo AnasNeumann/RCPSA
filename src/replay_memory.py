@@ -19,9 +19,10 @@ __license__ = "MIT License"
 class PossibleAction:
     id: int
     lb: int
+    ub: int
 
     def __repr__(self):
-        return f'PA(id={self.id}, lb={self.lb})'
+        return f'PA(id={self.id}, lb={self.lb}, ub={self.ub})'
 
 class Transition:
     """
@@ -75,6 +76,12 @@ class Transition:
         if self.makespan >= t.makespan:
             self.reward   = t.reward
             self.makespan = t.makespan
+
+    def refine_from_possible_children(self):
+        self.lb               = min(a.lb for a in self.possible_children)
+        self.ub               = min(a.ub for a in self.possible_children)
+        self.delta_lb         = self.lb - self.parent.lb
+        self.delta_ub         = self.ub - self.parent.ub
 
 class ITree:
     """

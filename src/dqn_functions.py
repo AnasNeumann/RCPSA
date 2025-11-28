@@ -130,7 +130,7 @@ def take_step(state: State, action: int):
 
 mps_amp = (torch.autocast(device_type="mps", dtype=torch.float16) if torch.backends.mps.is_available() else nullcontext())
 
-def select_action(state: State, policy_net: HyperGraphGNN, e: float, greedy: bool, possible_actions: list[PossibleAction], device: Device, memory: Memory=None) -> Tensor:
+def select_action(state: State, policy_net: HyperGraphGNN, e: float, greedy: bool, possible_actions: list[PossibleAction], device: Device, memory: Memory=None) -> tuple[Tensor, int, int]:
     """
         Select a feasible-only action using the current policy network OR random (when replay memory is still relatively empty)
     """
@@ -154,7 +154,8 @@ def select_action(state: State, policy_net: HyperGraphGNN, e: float, greedy: boo
             action        = possible_idx[index].item()
     else:
         action = random.choice(possible_actions).id
-    return torch.tensor([[action]], device=device, dtype=torch.long)
+    LB, UB = [(a.lb, a.ub) for a in possible_actions if a.id == action][0]
+    return torch.tensor([[action]], device=device, dtype=torch.long), LB, UB
 
 def _build_batch_indices(actions_local_indices: Tensor, nb_tasks :int, batch_size: int):
     graph_offsets: Tensor = torch.arange(batch_size, device=actions_local_indices.device) * nb_tasks

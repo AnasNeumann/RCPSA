@@ -18,7 +18,7 @@ from src.common import display_final_computing_time
 from src.state import State
 from src.neural_nets import HyperGraphGNN
 from src.replay_memory import Transition, Memory, ITree, PossibleAction
-from src.tracker import Tracker
+from src.tracker import Tracker, TreeTracker
 from src.instance_reader import build_instance
 from src.dqn_functions import optimize_policy_net, optimize_target_net, select_action, take_step, HypotheticalStep
 from src.scheduling_functions import find_feasible_tasks
@@ -30,7 +30,7 @@ __author__  = "Anas Neumann - anas.neumann@polymtl.ca"
 __version__ = "1.0.0"
 __license__ = "MIT License"
 
-def diversify(memory: ITree, current_transition: Transition, possible_actions: list[PossibleAction], device: str, best_known_Cmax: int, accept_seen: bool = False) -> tuple[Tensor, bool]:
+def diversify(memory: ITree, current_transition: Transition, possible_actions: list[PossibleAction], device: str, best_known_Cmax: int, accept_seen: bool = False) -> tuple[Tensor, int, int, bool]:
     """
         Select a random feasible action that has neven been tried yet in the current branch of the tree (but LB <= best_known_Cmax)
     """
@@ -60,20 +60,27 @@ def diversify(memory: ITree, current_transition: Transition, possible_actions: l
         unseen.sort(key=lambda a: a.lb)
         idx: int               = np.random.choice(min(TOP_K, len(unseen)))
         action: PossibleAction = unseen[idx]
-        return torch.tensor([[action.id]], device=device, dtype=torch.long), fail
-    return None, True
+        return torch.tensor([[action.id]], device=device, dtype=torch.long), action.lb, action.ub, fail
+    return None, -1, -1, True
 
-def search_possible_actions(state: State, current_transition: Transition) -> list[PossibleAction]:
+def search_possible_actions(state: State, current_transition: Transition, best_Cmax: int, cut_bad_branches: bool = False) -> list[PossibleAction]:
+    """
+        Search for possible action, but also cut bad branches and update parent LB
+    """
     if current_transition is not None:
+        current_transition.refine_from_possible_children()
+        if cut_bad_branches:
+            current_transition.possible_actions = [a for a in current_transition.possible_actions if a.lb < best_Cmax]
         return current_transition.possible_actions
     else:
         possible_actions: list[PossibleAction] = []
-        feasible_tasks: list[dict]             = find_feasible_tasks(state.tasks, state.scheduled_tasks)
+        feasible_tasks: list[dict] = find_feasible_tasks(state.tasks, state.scheduled_tasks)
         for task in feasible_tasks:
             with HypotheticalStep(state, task["Id"]) as step:
                 if step.success:
                     lb: int = state.compute_lower_bound()
-                    possible_actions.append(PossibleAction(id=task["Id"], lb=lb))
+                    if lb < best_Cmax or not cut_bad_branches:
+                        possible_actions.append(PossibleAction(id=task["Id"], lb=lb, ub=state.compute_upper_bound()))
         return possible_actions
 
 def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
@@ -97,7 +104,8 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
     _EPSILON_TRACKER: Tracker              = Tracker(xlabel="Episode", ylabel="epsilon", title="Diversity rate", color="black", show=interactive)
     _REPLAY_MEMORY: Memory                 = Memory(device=_device)
     _TREE: ITree                           = _REPLAY_MEMORY.add_instance_if_new(instance_name=instance_name)
-    possible_actions: list[PossibleAction] = search_possible_actions(state=_best_state, current_transition=None)
+    #_TREE_TRACKER: TreeTracker             = TreeTracker(title="GNN Search Tree", show=INTERACTIVE, update_frequency=20)
+    possible_actions: list[PossibleAction] = search_possible_actions(state=_best_state, current_transition=None, best_Cmax=Cmax, cut_bad_branches=False)
     _best_state.graph                      = _best_state.to_hyper_graph(possible_actions=possible_actions, transitions=_TREE.tree_transitions)
     for param in _POLICY_NET.parameters():
         if param.dim() > 1:
@@ -111,8 +119,9 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
         _e: float                                 = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * _episode / EPS_DECAY)
         transition: Transition                    = None
         _search_transition: bool                  = True
+        _cut_bad_branches: bool                   = _episode > 500
         _state: State                             = State.from_empty_solution(_best_state, _tasks, _resources)
-        possible_actions                          = search_possible_actions(state=_state, current_transition=None)
+        possible_actions                          = search_possible_actions(state=_state, current_transition=None, best_Cmax=Cmax, cut_bad_branches=_cut_bad_branches)
         _state.graph                              = _state.to_hyper_graph(possible_actions=possible_actions, transitions=_TREE.tree_transitions)
         _prev_lb: int                             = _best_state.init_lb
         _prev_ub: int                             = _best_state.init_ub
@@ -121,24 +130,27 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
         for step in count():
             should_diversify: bool = _search_transition and (step == diversified_step)
             if should_diversify:
-                _action_idx, failed = diversify(memory=_TREE, current_transition=transition, possible_actions=possible_actions, device=_device, best_known_Cmax=Cmax, accept_seen=_search_transition)
+                _action_idx, LB, UB, failed = diversify(memory=_TREE, current_transition=transition, possible_actions=possible_actions, device=_device, best_known_Cmax=Cmax, accept_seen=_search_transition)
                 if failed:
                     should_diversify  = False
                     diversified_step += 1
             if not should_diversify:
-                _action_idx: Tensor = select_action(state=_state, policy_net=_POLICY_NET, e=_e, greedy=random.random() < GREEDY_RATE, device=_device, memory=_REPLAY_MEMORY, possible_actions=possible_actions)
+                _action_idx, LB, UB = select_action(state=_state, policy_net=_POLICY_NET, e=_e, greedy=random.random() < GREEDY_RATE, device=_device, memory=_REPLAY_MEMORY, possible_actions=possible_actions)
             if _search_transition:
                 transition        = _TREE.search_transition(action=_action_idx.item(), current_transition=transition)
                 _search_transition = transition is not None
             _steps                += 1
             take_step(state=_state, action=_action_idx.item())
-            possible_actions       = search_possible_actions(state=_state, current_transition=transition)
+            possible_actions       = search_possible_actions(state=_state, current_transition=transition, best_Cmax=Cmax, cut_bad_branches=_cut_bad_branches)
             if not possible_actions and not _state.done:
                 print(f"-> ERROR: No possible actions with lower bound < current best Cmax ({Cmax})!")
+                _state.lower_bound = LB
+                _state.upper_bound = UB
+                
                 break
             _next_graph: HeteroData = _state.to_hyper_graph(possible_actions=possible_actions, transitions=transition.next if transition is not None else [])
-            _state.lower_bound      = _state.compute_lower_bound()
-            _state.upper_bound      = _state.compute_upper_bound()
+            _state.lower_bound      = LB
+            _state.upper_bound      = UB
             _transitions_in_episode.append(Transition(action=_action_idx, 
                                                       previous_graph=_state.graph, 
                                                       graph=_next_graph, 
@@ -149,13 +161,14 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                                                       possible_actions=possible_actions,
                                                       parent=_transitions_in_episode[-1] if _transitions_in_episode else None))
             _state.graph = _next_graph  
-            _prev_lb     = _state.lower_bound
-            _prev_ub     = _state.upper_bound
+            _prev_lb     = LB
+            _prev_ub     = UB
 
             # END OF EPISODE
             if _state.done:
                 _EPSILON_TRACKER.update(_e)
                 _Cmax_TRACKER.update(_state.make_span)
+                #_TREE_TRACKER.update(transitions=_transitions_in_episode, is_best=_state.make_span<Cmax)
                 _TREE.add_or_update_transition(transition=_transitions_in_episode[0], final_makespan=_state.make_span)
                 huber_loss: float = optimize_policy_net(memory=_REPLAY_MEMORY, policy_net=_POLICY_NET, target_net=_TARGET_NET, optimizer=_OPTIMIZER, scheduler=_SCHEDULER, tracker=_LOSS_TRACKER, nb_tasks=len(_tasks), device=_device)
                 optimize_target_net(policy_net=_POLICY_NET, target_net=_TARGET_NET)
@@ -177,6 +190,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                     _Cmax_TRACKER.save(_saving_path + "_DRL_makespan")
                     _EPSILON_TRACKER.save(_saving_path + "_diversity")
                     _LOSS_TRACKER.save(_saving_path + "_loss")
+                    #_TREE_TRACKER.save(_saving_path)
                     torch.save(_TARGET_NET.state_dict(), _saving_path + "_target_gnn.pth")
                     torch.save(_POLICY_NET.state_dict(), _saving_path + "_policy_gnn.pth")
                     torch.save(_OPTIMIZER.state_dict(), _saving_path + "_adamw_gnn_optimizer.pth")

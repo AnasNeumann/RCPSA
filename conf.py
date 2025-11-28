@@ -5,7 +5,7 @@ __author__  = "Anas Neumann - anas.neumann@polymtl.ca"
 __version__ = "1.0.0"
 __license__ = "MIT License"
 
-INTERACTIVE: bool        = True
+INTERACTIVE: bool        = False
 
 INFINITY: int            = 100000
 

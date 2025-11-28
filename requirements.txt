@@ -7,3 +7,6 @@ torch
 torchvision
 torch_geometric
 sortedcontainers
+networkx
+pygraphviz
+scipy
