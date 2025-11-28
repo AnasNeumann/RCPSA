@@ -170,9 +170,6 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                     gc.collect()
                     if torch.backends.mps.is_available():
                         torch.mps.empty_cache()
-
-                # LAST EPISODE
-                if _episode == NB_EPISODES:
                     print(f"Saving files...")
                     os.makedirs(os.path.dirname(_saving_path), exist_ok=True)
                     with open(_saving_path + "_results.txt", "w", encoding="utf-8") as file:

@@ -5,7 +5,7 @@ __author__  = "Anas Neumann - anas.neumann@polymtl.ca"
 __version__ = "1.0.0"
 __license__ = "MIT License"
 
-INTERACTIVE: bool        = False
+INTERACTIVE: bool        = True
 
 INFINITY: int            = 100000
 
@@ -17,7 +17,7 @@ GNN_STACK_SIZE: int      = 2
 DROPOUT_RATE: float      = 0.15
 
 MEMORY_CAPACITY: int     = 40_000 # number of transitions in the replay memory
-NB_EPISODES: int         = 6_000  # number of training/solving episodes
+NB_EPISODES: int         = 10_000 # number of training/solving episodes
 BATCH_SIZE: int          = 256    # size of each batch sampled from the replay memory
 TOP_K: int               = 4      # number of top-Q actions to consider in the Boltzmann exploration
 TEMPERATURE: float       = 0.45   # temperature parameter for the Boltzmann exploration
