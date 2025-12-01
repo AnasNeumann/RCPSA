@@ -12,7 +12,7 @@ from torch import Tensor
 from torch.optim import AdamW
 from torch_geometric.data import HeteroData
 
-from conf import INTERACTIVE, LR, NB_EPISODES, EPS_DECAY, EPS_END, EPS_START, GREEDY_RATE, TOP_K, INFINITY, MIN_LR, PATIENCE
+from conf import INTERACTIVE, LR, NB_EPISODES, EPS_DECAY, EPS_END, EPS_START, GREEDY_RATE, TOP_K, INFINITY
 from src.common import display_final_computing_time
 from src.state import State
 from src.neural_nets import HyperGraphGNN
@@ -118,8 +118,6 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
         _state: State                             = State.from_empty_solution(_best_state, _tasks, _resources)
         possible_actions                          = search_possible_actions(state=_state, current_transition=None, best_Cmax=Cmax, cut_bad_branches=_cut_bad_branches)
         _state.graph                              = _state.to_hyper_graph(possible_actions=possible_actions, transitions=_TREE.tree_transitions)
-        _prev_lb: int                             = _best_state.init_lb
-        _prev_ub: int                             = _best_state.init_ub
         _transitions_in_episode: list[Transition] = []
         diversified_step: int = random.randint(0, len(_tasks)-1)
         for step in count():
@@ -139,25 +137,29 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
             possible_actions       = search_possible_actions(state=_state, current_transition=transition, best_Cmax=Cmax, cut_bad_branches=_cut_bad_branches)
             if not possible_actions and not _state.done:
                 print(f"-> ERROR: No possible actions with lower bound < current best Cmax ({Cmax})!")
-                _state.lower_bound = LB
-                _state.upper_bound = UB
-                
                 break
             _next_graph: HeteroData = _state.to_hyper_graph(possible_actions=possible_actions, transitions=transition.next if transition is not None else [])
             _state.lower_bound      = LB
-            _state.upper_bound      = UB
+            _state.upper_bound      = min(_state.upper_bound, UB)
+            if _transitions_in_episode:
+                _transitions_in_episode[-1].lb = max(_transitions_in_episode[-1].lb, LB)  
+                _transitions_in_episode[-1].ub = min(_transitions_in_episode[-1].ub, UB)
+            delta_lb: int = LB - (_transitions_in_episode[-1].lb if _transitions_in_episode else _state.init_lb)
+            delta_ub: int = _state.upper_bound - (_transitions_in_episode[-1].ub if _transitions_in_episode else _state.init_ub)
+            #if delta_lb != 0:
+            #    print(delta_lb, "...DELTA LB")
+            if delta_ub != 0:
+                print(delta_ub, "...DELTA UB")
             _transitions_in_episode.append(Transition(action=_action_idx, 
                                                       previous_graph=_state.graph, 
                                                       graph=_next_graph, 
                                                       lb=_state.lower_bound, 
-                                                      delta_lb=_state.lower_bound - _prev_lb, 
+                                                      delta_lb=delta_lb, 
                                                       ub=_state.upper_bound,
-                                                      delta_ub=_prev_ub - _state.upper_bound, 
+                                                      delta_ub=delta_ub, 
                                                       possible_actions=possible_actions,
                                                       parent=_transitions_in_episode[-1] if _transitions_in_episode else None))
-            _state.graph = _next_graph  
-            _prev_lb     = LB
-            _prev_ub     = UB
+            _state.graph = _next_graph
 
             # END OF EPISODE
             if _state.done:
@@ -170,7 +172,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                     _best_state   = _state
                     _best_episode = _episode
                     Cmax          = _state.make_span
-                print(f"DQN Episode: {_episode} -- random_step: {diversified_step} -- Makespan: {_state.make_span} (best: {Cmax}) -- Є: {_e:.3f} -- Huber Loss: {huber_loss:.2f} -- LR: {_OPTIMIZER.param_groups[0]['lr']:.5f}")
+                print(f"DQN Episode: {_episode} -- random_step: {diversified_step} -- Makespan: {_state.make_span} (best: {Cmax}) -- Є: {_e:.3f} -- Huber Loss: {huber_loss:.2f}")
 
                 # TIME TO FREE SOME MEMORY                
                 if _episode % 100 == 0 and _episode > 0:

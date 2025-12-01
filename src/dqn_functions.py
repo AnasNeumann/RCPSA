@@ -182,7 +182,7 @@ def optimize_policy_net(memory: Memory, policy_net: HyperGraphGNN, target_net: H
     with torch.no_grad():
         feasible_mask                        = next_graph_batch[O].x[:, 10].bool()
         next_all_q_values: Tensor            = target_net(next_graph_batch).squeeze(-1)                       # Shape: [num_total_next_tasks]
-        next_all_q_values[~feasible_mask]    = -float('inf')
+        next_all_q_values[~feasible_mask]    = -INFINITY
         next_state_max_q_values: Tensor      = global_max_pool(next_all_q_values, next_graph_batch[O].batch)  # Shape: [num_non_final_states < reward_batch]
         expected_state_action_values: Tensor = reward_batch + (1.0 - b_dones) * next_state_max_q_values * GAMMA    
     criterion = nn.SmoothL1Loss(beta=1.0).to(device)

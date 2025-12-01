@@ -5,9 +5,9 @@ __author__  = "Anas Neumann - anas.neumann@polymtl.ca"
 __version__ = "1.0.0"
 __license__ = "MIT License"
 
-INTERACTIVE: bool        = True
+INTERACTIVE: bool        = False
 
-INFINITY: int            = 100000
+INFINITY: int            = 1e6
 
 TASK_ID_DIM: int         = 4
 RESOURCE_ID_DIM: int     = 2
@@ -33,8 +33,8 @@ GREEDY_RATE: float       = 0.3    # rate of using greedy action selection instea
 GAMMA: float             = 1.0    # discount factor
 TAU: float               = 0.003  # update rate of the target network
 
-W_LB: float              = 0.5   
-W_UB: float              = 0.4
+W_LB: float              = 0.8   
+W_UB: float              = 0.1
 W_FINAL: float           = 0.1
 
 ELITS: int               = 250    # maximum number of elits solutions for the X operator
