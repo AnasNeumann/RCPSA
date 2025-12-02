@@ -13,8 +13,6 @@ from torch_geometric.data import HeteroData
 from torch_geometric.utils import to_networkx
 
 from conf import O, P, D, R, S
-from src.scheduling_functions import find_possible_start_day_for_task
-from src.instance_reader import khan_topological_sort
 from src.replay_memory import Transition, PossibleAction
 
 # ===========================================
@@ -29,7 +27,7 @@ class State():
     RESOURCE_FEATURES: int = 2
     DEMAND_FEATURES: int   = 1
 
-    def __init__(self, device: Device, p_id: str="", p_make_span: int=0, p_tasks: list=[], p_resources: list=[], p_scheduled_tasks: list=[], std_durations: list = [], lower_bound: int = 0, init_lb: int = 0, upper_bound: int = 0, init_ub: int = 0, indirect_successors: list = [], critical_path: list = [], max_duration: int = 0, deep_cpy: bool = True):
+    def __init__(self, device: Device, p_id: str="", p_make_span: int=0, p_tasks: list=[], p_resources: list=[], p_scheduled_tasks: list=[], std_durations: list = [], lower_bound: int = 0, init_lb: int = 0, init_ub: int = 0, indirect_successors: list = [], critical_path: list = [], max_duration: int = 0, deep_cpy: bool = True):
         self.id: str                   = p_id
         self.device                    = device
         self.done: bool                = False
@@ -49,9 +47,8 @@ class State():
         else:
             self.std_durations, self.max_duration = self._compute_standard_durations()
         self.lower_bound       = lower_bound if lower_bound > 0 else self.compute_lower_bound()
-        self.upper_bound       = upper_bound if lower_bound > 0 else self.compute_upper_bound()
         self.init_lb           = init_lb if init_lb > 0 else self.lower_bound
-        self.init_ub           = init_ub if init_ub > 0 else self.upper_bound
+        self.init_ub           = init_ub if init_ub > 0 else self.compute_upper_bound()
         self.graph: HeteroData = None
 
     @classmethod
@@ -60,38 +57,27 @@ class State():
 
     @classmethod
     def from_problem(cls, tasks: list, resources: list, device: Device, makespan: int = math.inf):
-        return State(device=device, p_id="", p_make_span=makespan, p_tasks=tasks, p_resources=resources, p_scheduled_tasks=[], std_durations=[], lower_bound=0, init_lb=0, upper_bound=0, init_ub=0, indirect_successors=[], critical_path=[], max_duration=0, deep_cpy=True)
+        return State(device=device, p_id="", p_make_span=makespan, p_tasks=tasks, p_resources=resources, p_scheduled_tasks=[], std_durations=[], lower_bound=0, init_lb=0, init_ub=0, indirect_successors=[], critical_path=[], max_duration=0, deep_cpy=True)
 
     @classmethod
     def from_empty_solution(cls, s, tasks: list, resources: list):
-        return State(device=s.device, p_id=s.id, p_make_span=0, p_tasks=tasks, p_resources=resources, p_scheduled_tasks=[], std_durations=s.std_durations, lower_bound=s.lower_bound, init_lb=s.init_lb, upper_bound=s.upper_bound, init_ub=s.init_ub, indirect_successors=s.indirect_successors, critical_path=s.critical_path, max_duration=s.max_duration, deep_cpy=True)
+        return State(device=s.device, p_id=s.id, p_make_span=0, p_tasks=tasks, p_resources=resources, p_scheduled_tasks=[], std_durations=s.std_durations, lower_bound=s.lower_bound, init_lb=s.init_lb, init_ub=s.init_ub, indirect_successors=s.indirect_successors, critical_path=s.critical_path, max_duration=s.max_duration, deep_cpy=True)
 
     def compute_lower_bound(self) -> int:
         """
             Combines LB_CPM - Critical Path Method (Longest path based on precedence) and LB_RES - Resource Capacity Bound (Volume of work / Capacity)
         """
-        es             = {}
-        scheduled_set  = set(self.scheduled_tasks)
-        remaining_work = {} 
-        in_degree      = {t["Id"]: 0 for t in self.tasks}
-        graph          = {t["Id"]: [] for t in self.tasks}
+        es            = {}
+        scheduled_set = set(self.scheduled_tasks)
+        in_degree     = {t["Id"]: 0 for t in self.tasks}
+        graph         = {t["Id"]: [] for t in self.tasks}
         for t in self.tasks:
             tid = t["Id"]
             for pid in t["Predecessors"]: # Build adjacency graph
                 graph[pid].append(tid)
                 in_degree[tid] += 1
-            if tid in scheduled_set: es[tid] = t.get("Finish", 0) 
-            else:
-                es[tid] = 0
-                reqs    = []
-                if "Resource" in t:
-                    for r_id, _ in self.resources:
-                        reqs.append(t["Resource"].get(str(r_id), 0))
-                elif "GlobalResources" in t: reqs = t["GlobalResources"]
-                for r_idx, amount in enumerate(reqs):
-                    if amount > 0:
-                        term = t["Duration"] * amount
-                        remaining_work[r_idx] = remaining_work.get(r_idx, 0) + term
+            if tid in scheduled_set: es[tid] = t.get("Finish", 0)
+            else: es[tid] = 0 # Tentative
         queue              = deque([t["Id"] for t in self.tasks if in_degree[t["Id"]] == 0])
         max_cpm            = 0
         min_unscheduled_es = float('inf') 
@@ -109,8 +95,37 @@ class State():
                 if in_degree[v_id] == 0: queue.append(v_id)
         lb_res = 0
         if min_unscheduled_es != float('inf'):
-            max_load_duration  = 0
-            capacities = [r[1] for r in self.resources] 
+            cut_time = min_unscheduled_es
+            remaining_work = {} # Map: resource_idx -> total_volume
+            for t in self.tasks:
+                if t["Id"] not in scheduled_set:
+                    reqs = []
+                    if "Resource" in t:
+                        for r_id, _ in self.resources:
+                            reqs.append(t["Resource"].get(str(r_id), 0))
+                    elif "GlobalResources" in t: 
+                        reqs = t["GlobalResources"]
+                    for r_idx, amount in enumerate(reqs):
+                        if amount > 0:
+                            term = t["Duration"] * amount
+                            remaining_work[r_idx] = remaining_work.get(r_idx, 0) + term
+            for t_id in self.scheduled_tasks:
+                t = self.task_map[t_id]
+                finish = t.get("Finish", 0)
+                if finish > cut_time:
+                    effective_duration = min(t["Duration"], finish - cut_time)
+                    reqs = []
+                    if "Resource" in t:
+                        for r_id, _ in self.resources:
+                            reqs.append(t["Resource"].get(str(r_id), 0))
+                    elif "GlobalResources" in t: 
+                        reqs = t["GlobalResources"]
+                    for r_idx, amount in enumerate(reqs):
+                        if amount > 0:
+                            term = effective_duration * amount
+                            remaining_work[r_idx] = remaining_work.get(r_idx, 0) + term
+            max_load_duration = 0
+            capacities = [r[1] for r in self.resources]
             for r_idx, work in remaining_work.items():
                 cap = capacities[r_idx]
                 if cap > 0:
@@ -118,7 +133,7 @@ class State():
                     if load_duration > max_load_duration:
                         max_load_duration = load_duration
             lb_res = min_unscheduled_es + max_load_duration
-        return max(max_cpm, lb_res)
+        return max(max_cpm, lb_res) # , self.init_lb)
 
     def compute_upper_bound(self, priority: str = "slack") -> int:
         """

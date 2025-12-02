@@ -6,7 +6,7 @@ from torch import Tensor
 from torch_geometric.data import HeteroData
 from torch._prims_common import DeviceLikeType
 
-from conf import MEMORY_CAPACITY, W_UB, W_LB, W_FINAL
+from conf import MEMORY_CAPACITY, W_LB, W_FINAL
 
 # ====================================================
 # =*= Model file for GNN tree-shaped replay memory =*=
@@ -19,21 +19,18 @@ __license__ = "MIT License"
 class PossibleAction:
     id: int
     lb: int
-    ub: int
 
     def __repr__(self):
-        return f'PA(id={self.id}, lb={self.lb}, ub={self.ub})'
+        return f'PA(id={self.id}, lb={self.lb})'
 
 class Transition:
     """
         One transition in the DRL MEMORY TREE
     """
-    def __init__(self, action: Tensor, previous_graph: HeteroData, graph: HeteroData, lb: int, ub: int, delta_lb: int, delta_ub :int, possible_actions: list[PossibleAction], parent=None):
+    def __init__(self, action: Tensor, previous_graph: HeteroData, graph: HeteroData, lb: int, delta_lb: int, possible_actions: list[PossibleAction], parent=None):
         self.action: Tensor               = action
         self.graph: HeteroData            = graph.clone().to('cpu')
         self.delta_lb: int                = delta_lb
-        self.delta_ub: int                = delta_ub
-        self.ub: int                      = ub
         self.lb: int                      = lb
         self.previous_graph: HeteroData   = previous_graph.clone().to('cpu')
         self.parent: Transition           = parent
@@ -61,11 +58,10 @@ class Transition:
         return self.parent == t.parent and torch.equal(self.action, t.action)
     
     def compute_reward(self, makespan: int, device: DeviceLikeType):
-        r: float       = (-1.0) * ((makespan * W_FINAL) + (self.delta_lb * W_LB) + (self.delta_ub * W_UB))
+        r: float       = (-1.0) * ((makespan * W_FINAL) + (self.delta_lb * W_LB))
         self.reward    = torch.tensor([r], device=device)
         self.makespan  = makespan
         self.lb        = min(self.lb, makespan)
-        self.ub        = max(self.ub, makespan)
         self.nb_visits = 1
         self.makespans.append(makespan)
 
@@ -77,11 +73,9 @@ class Transition:
             self.reward   = t.reward
             self.makespan = t.makespan
 
-    def refine_from_possible_children(self, init_lb: int, init_ub: int):
+    def refine_from_possible_children(self, init_lb: int):
         self.lb               = min(a.lb for a in self.possible_actions)
-        self.ub               = min(a.ub for a in self.possible_actions)
         self.delta_lb         = (self.lb - self.parent.lb) if self.parent is not None else (self.lb - init_lb)
-        self.delta_ub         = (self.parent.ub - self.ub) if self.parent is not None else (init_ub - self.ub)
 
 class ITree:
     """

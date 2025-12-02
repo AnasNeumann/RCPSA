@@ -29,7 +29,7 @@ __author__  = "Anas Neumann - anas.neumann@polymtl.ca"
 __version__ = "1.0.0"
 __license__ = "MIT License"
 
-def diversify(memory: ITree, current_transition: Transition, possible_actions: list[PossibleAction], device: str, best_known_Cmax: int, accept_seen: bool = False) -> tuple[Tensor, int, int, bool]:
+def diversify(memory: ITree, current_transition: Transition, possible_actions: list[PossibleAction], device: str, best_known_Cmax: int, accept_seen: bool = False) -> tuple[Tensor, int, bool]:
     """
         Select a random feasible action that has neven been tried yet in the current branch of the tree (but LB <= best_known_Cmax)
     """
@@ -59,15 +59,15 @@ def diversify(memory: ITree, current_transition: Transition, possible_actions: l
         unseen.sort(key=lambda a: a.lb)
         idx: int               = np.random.choice(min(TOP_K, len(unseen)))
         action: PossibleAction = unseen[idx]
-        return torch.tensor([[action.id]], device=device, dtype=torch.long), action.lb, action.ub, fail
-    return None, -1, -1, True
+        return torch.tensor([[action.id]], device=device, dtype=torch.long), action.lb, fail
+    return None, -1, True
 
 def search_possible_actions(state: State, current_transition: Transition, best_Cmax: int, cut_bad_branches: bool = False) -> list[PossibleAction]:
     """
         Search for possible action, but also cut bad branches and update parent LB
     """
     if current_transition is not None:
-        current_transition.refine_from_possible_children(state.init_lb, state.init_ub)
+        current_transition.refine_from_possible_children(state.init_lb)
         if cut_bad_branches:
             current_transition.possible_actions = [a for a in current_transition.possible_actions if a.lb < best_Cmax]
         return current_transition.possible_actions
@@ -75,9 +75,9 @@ def search_possible_actions(state: State, current_transition: Transition, best_C
         possible_actions: list[PossibleAction] = []
         feasible_tasks: list[dict] = find_feasible_tasks(state.tasks, state.scheduled_tasks)
         for task in feasible_tasks:
-            with HypotheticalStep(state, task["Id"]) as step:
+            with HypotheticalStep(state, task["Id"], state.init_ub) as step:
                 if step.success:
-                    possible_actions.append(PossibleAction(id=task["Id"], lb=state.compute_lower_bound(), ub=state.compute_upper_bound()))
+                    possible_actions.append(PossibleAction(id=task["Id"], lb=state.compute_lower_bound()))
         return possible_actions
 
 def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
@@ -123,40 +123,34 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
         for step in count():
             should_diversify: bool = _search_transition and (step == diversified_step)
             if should_diversify:
-                _action_idx, LB, UB, failed = diversify(memory=_TREE, current_transition=transition, possible_actions=possible_actions, device=_device, best_known_Cmax=Cmax, accept_seen=_search_transition)
+                _action_idx, LB, failed = diversify(memory=_TREE, current_transition=transition, possible_actions=possible_actions, device=_device, best_known_Cmax=Cmax, accept_seen=_search_transition)
                 if failed:
                     should_diversify  = False
                     diversified_step += 1
             if not should_diversify:
-                _action_idx, LB, UB = select_action(state=_state, policy_net=_POLICY_NET, e=_e, greedy=random.random() < GREEDY_RATE, device=_device, memory=_REPLAY_MEMORY, possible_actions=possible_actions)
+                _action_idx, LB = select_action(state=_state, policy_net=_POLICY_NET, e=_e, greedy=random.random() < GREEDY_RATE, device=_device, memory=_REPLAY_MEMORY, possible_actions=possible_actions)
             if _search_transition:
-                transition        = _TREE.search_transition(action=_action_idx.item(), current_transition=transition)
+                transition         = _TREE.search_transition(action=_action_idx.item(), current_transition=transition)
                 _search_transition = transition is not None
             _steps                += 1
-            take_step(state=_state, action=_action_idx.item())
+            take_step(state=_state, action=_action_idx.item(), ub=_state.init_ub)
             possible_actions       = search_possible_actions(state=_state, current_transition=transition, best_Cmax=Cmax, cut_bad_branches=_cut_bad_branches)
             if not possible_actions and not _state.done:
                 print(f"-> ERROR: No possible actions with lower bound < current best Cmax ({Cmax})!")
                 break
             _next_graph: HeteroData = _state.to_hyper_graph(possible_actions=possible_actions, transitions=transition.next if transition is not None else [])
             _state.lower_bound      = LB
-            _state.upper_bound      = min(_state.upper_bound, UB)
             if _transitions_in_episode:
-                _transitions_in_episode[-1].lb = max(_transitions_in_episode[-1].lb, LB)  
-                _transitions_in_episode[-1].ub = min(_transitions_in_episode[-1].ub, UB)
-            delta_lb: int = LB - (_transitions_in_episode[-1].lb if _transitions_in_episode else _state.init_lb)
-            delta_ub: int = _state.upper_bound - (_transitions_in_episode[-1].ub if _transitions_in_episode else _state.init_ub)
-            #if delta_lb != 0:
-            #    print(delta_lb, "...DELTA LB")
-            if delta_ub != 0:
-                print(delta_ub, "...DELTA UB")
+                _transitions_in_episode[-1].lb = min(_transitions_in_episode[-1].lb, LB)  
+                delta_lb: int                  = LB - _transitions_in_episode[-1].lb
+            else:
+                _state.init_lb = min(_state.init_lb, LB)
+                delta_lb: int  = LB - _state.init_lb          
             _transitions_in_episode.append(Transition(action=_action_idx, 
                                                       previous_graph=_state.graph, 
                                                       graph=_next_graph, 
                                                       lb=_state.lower_bound, 
                                                       delta_lb=delta_lb, 
-                                                      ub=_state.upper_bound,
-                                                      delta_ub=delta_ub, 
                                                       possible_actions=possible_actions,
                                                       parent=_transitions_in_episode[-1] if _transitions_in_episode else None))
             _state.graph = _next_graph

@@ -33,8 +33,7 @@ GREEDY_RATE: float       = 0.3    # rate of using greedy action selection instea
 GAMMA: float             = 1.0    # discount factor
 TAU: float               = 0.003  # update rate of the target network
 
-W_LB: float              = 0.8   
-W_UB: float              = 0.1
+W_LB: float              = 0.9  
 W_FINAL: float           = 0.1
 
 ELITS: int               = 250    # maximum number of elits solutions for the X operator

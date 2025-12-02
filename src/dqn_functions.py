@@ -51,7 +51,7 @@ def ssgs(tasks: list[dict], resources: list[tuple[int, int]], task: dict, ub: in
     for predecessor in predecessors:
         if predecessor["Finish"] >= min_start_day:
             min_start_day = predecessor["Finish"] + (not (not (predecessor["Duration"] * task["Duration"])))
-    start_day = find_possible_start_day_for_task(tasks, resources, task, min_start_day, ub)
+    start_day = find_possible_start_day_for_task(tasks, resources, task, min_start_day, ub * 2)
     if start_day > 0:
         task["Start"]  = start_day
         task["Finish"] = start_day + task["Duration"] - (not (not (task["Duration"])))
@@ -73,7 +73,7 @@ class HypotheticalStep:
         Context manager to temporarily apply a task to the state, 
         compute metrics, and revert the state exactly as it was.
     """
-    def __init__(self, state: State, task_id: int):
+    def __init__(self, state: State, task_id: int, ub: int):
         self.state: State        = state
         self.task_id: int        = task_id
         self.task: dict          = None
@@ -82,6 +82,7 @@ class HypotheticalStep:
         self.old_makespan: int   = state.make_span
         self.was_scheduled: bool = False
         self.success: bool       = False
+        self.ub: int             = ub
 
     def __enter__(self):
         self.task       = next(t for t in self.state.tasks if t["Id"] == self.task_id)
@@ -93,7 +94,7 @@ class HypotheticalStep:
                 feasible = False
                 break
         if feasible:
-            updated_task = ssgs(self.state.tasks, self.state.resources, self.task, 10000)
+            updated_task = ssgs(self.state.tasks, self.state.resources, self.task, self.ub)
             if updated_task["Start"] > 0:
                 self.state.scheduled_tasks.append(self.task_id)
                 self.state.make_span = max(self.state.make_span, updated_task["Finish"])
@@ -108,7 +109,7 @@ class HypotheticalStep:
             self.task["Start"]   = self.old_start
             self.task["Finish"]  = self.old_finish
 
-def take_step(state: State, action: int):
+def take_step(state: State, action: int, ub: int):
     """
         Take a step in the environment by selecting an action (task) to schedule
     """
@@ -118,7 +119,7 @@ def take_step(state: State, action: int):
         print(f"{action} not found")
         exit()
     feasible: bool = check_precedence_feasibility(state, task)
-    task: dict     = ssgs(state.tasks, state.resources, task, 10000)
+    task: dict     = ssgs(state.tasks, state.resources, task, ub)
     if not feasible or task["Start"] <= 0:
         build_impossible_state(state, task)
     else:
@@ -130,7 +131,7 @@ def take_step(state: State, action: int):
 
 mps_amp = (torch.autocast(device_type="mps", dtype=torch.float16) if torch.backends.mps.is_available() else nullcontext())
 
-def select_action(state: State, policy_net: HyperGraphGNN, e: float, greedy: bool, possible_actions: list[PossibleAction], device: Device, memory: Memory=None) -> tuple[Tensor, int, int]:
+def select_action(state: State, policy_net: HyperGraphGNN, e: float, greedy: bool, possible_actions: list[PossibleAction], device: Device, memory: Memory=None) -> tuple[Tensor, int]:
     """
         Select a feasible-only action using the current policy network OR random (when replay memory is still relatively empty)
     """
@@ -154,8 +155,8 @@ def select_action(state: State, policy_net: HyperGraphGNN, e: float, greedy: boo
             action        = possible_idx[index].item()
     else:
         action = random.choice(possible_actions).id
-    LB, UB = [(a.lb, a.ub) for a in possible_actions if a.id == action][0]
-    return torch.tensor([[action]], device=device, dtype=torch.long), LB, UB
+    LB = [a.lb for a in possible_actions if a.id == action][0]
+    return torch.tensor([[action]], device=device, dtype=torch.long), LB
 
 def _build_batch_indices(actions_local_indices: Tensor, nb_tasks :int, batch_size: int):
     graph_offsets: Tensor = torch.arange(batch_size, device=actions_local_indices.device) * nb_tasks
