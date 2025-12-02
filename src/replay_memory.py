@@ -73,9 +73,13 @@ class Transition:
             self.reward   = t.reward
             self.makespan = t.makespan
 
-    def refine_from_possible_children(self, init_lb: int):
+    def refine_from_possible_children(self, init_lb: int, cut_bad_branches: bool, best_Cmax: int):
         self.lb               = min(a.lb for a in self.possible_actions)
         self.delta_lb         = (self.lb - self.parent.lb) if self.parent is not None else (self.lb - init_lb)
+        if self.next and cut_bad_branches:
+            self.possible_actions = [a for a in self.possible_actions if a.lb < best_Cmax]
+            if not self.possible_actions:
+                self.parent.possible_actions = [a for a in self.parent.possible_actions if a.id < self.action]
 
 class ITree:
     """

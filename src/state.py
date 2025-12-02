@@ -133,7 +133,7 @@ class State():
                     if load_duration > max_load_duration:
                         max_load_duration = load_duration
             lb_res = min_unscheduled_es + max_load_duration
-        return max(max_cpm, lb_res) # , self.init_lb)
+        return max(max_cpm, lb_res)
 
     def compute_upper_bound(self, priority: str = "slack") -> int:
         """

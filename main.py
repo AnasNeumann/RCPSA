@@ -67,9 +67,7 @@ def search_possible_actions(state: State, current_transition: Transition, best_C
         Search for possible action, but also cut bad branches and update parent LB
     """
     if current_transition is not None:
-        current_transition.refine_from_possible_children(state.init_lb)
-        if cut_bad_branches:
-            current_transition.possible_actions = [a for a in current_transition.possible_actions if a.lb < best_Cmax]
+        current_transition.refine_from_possible_children(state.init_lb, cut_bad_branches=cut_bad_branches, best_Cmax=best_Cmax)
         return current_transition.possible_actions
     else:
         possible_actions: list[PossibleAction] = []
