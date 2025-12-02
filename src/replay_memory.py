@@ -149,7 +149,11 @@ class ITree:
                     return _existing
             if not _found:
                 transition.parent.next.append(transition)
-                _t: Transition = transition
+                _t: Transition = transition.parent
+                while True:
+                    if not _t.parent:
+                        break
+                    _t = _t.parent
                 while True:
                     self.global_memory.add_into_flat_memory(_t)
                     if not _t.next:
