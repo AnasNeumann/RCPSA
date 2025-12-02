@@ -171,7 +171,7 @@ def optimize_policy_net(memory: Memory, policy_net: HyperGraphGNN, target_net: H
             L(x, y) = 1/2 (x-y)^2 for small errors (|x-y| ≤ δ) else δ|x-y| - 1/2 x δ^2
     """
     _samples_size: int                                = min(len(memory.flat_transitions), BATCH_SIZE)
-    sampled_transitions: list                         = random.sample(list(memory.flat_transitions), _samples_size)
+    sampled_transitions: list                         = random.sample(memory.flat_transitions, _samples_size)
     b_actions, b_previous_graphs, b_graphs, b_rewards = zip(*[(t.action, t.previous_graph, t.graph, t.reward) for t in sampled_transitions])
     b_dones: Tensor                                   = torch.tensor([len(t.next) == 0 for t in sampled_transitions], device=device, dtype=torch.float32)
     graph_batch: HeteroData                           = Batch.from_data_list(b_previous_graphs).to(device)

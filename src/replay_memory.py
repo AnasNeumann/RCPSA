@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from collections import deque
 
 import torch
 from torch import Tensor
@@ -73,13 +72,26 @@ class Transition:
             self.reward   = t.reward
             self.makespan = t.makespan
 
-    def refine_from_possible_children(self, init_lb: int, cut_bad_branches: bool, best_Cmax: int):
-        self.lb               = min(a.lb for a in self.possible_actions)
-        self.delta_lb         = (self.lb - self.parent.lb) if self.parent is not None else (self.lb - init_lb)
+    def refine_from_possible_children(self, memory: 'Memory', init_lb: int, cut_bad_branches: bool, best_Cmax: int):
+        if self.possible_actions:
+            self.lb = min(a.lb for a in self.possible_actions)
+        if self.parent is not None:
+            self.delta_lb = self.lb - self.parent.lb
+            for a in self.parent.possible_actions:
+                if a.id == self.action.item():
+                    a.lb = self.lb
+                    break
+        else:
+            self.delta_lb = self.lb - init_lb 
         if self.next and cut_bad_branches:
-            self.possible_actions = [a for a in self.possible_actions if a.lb < best_Cmax]
-            if not self.possible_actions:
-                self.parent.possible_actions = [a for a in self.parent.possible_actions if a.id < self.action]
+            self.possible_actions = [a for a in self.possible_actions if a.lb <= best_Cmax]
+            to_remove             = [t for t in self.next if t.lb > best_Cmax and t.in_memory == True]
+            self.next             = [t for t in self.next if t.lb <= best_Cmax]
+            for t in to_remove:
+                t.in_memory = False
+                memory.flat_transitions.remove(t)
+            if self.parent is not None and not self.possible_actions:
+                self.parent.refine_from_possible_children(memory, init_lb, True, best_Cmax)
 
 class ITree:
     """
@@ -118,7 +130,6 @@ class ITree:
                     return _other_first
             if not _found:
                 self.tree_transitions.append(transition)
-                self.global_memory.add_into_flat_memory(transition)
                 _t: Transition = transition
                 while True:
                     self.global_memory.add_into_flat_memory(_t)
@@ -138,7 +149,6 @@ class ITree:
                     return _existing
             if not _found:
                 transition.parent.next.append(transition)
-                self.global_memory.add_into_flat_memory(transition)
                 _t: Transition = transition
                 while True:
                     self.global_memory.add_into_flat_memory(_t)
@@ -156,13 +166,13 @@ class Memory:
     def __init__(self, device: DeviceLikeType):
         self.device = device
         self.instance_trees: list[ITree] = []
-        self.flat_transitions: deque = deque(maxlen=MEMORY_CAPACITY)
+        self.flat_transitions: list[Transition] = []
 
     def add_into_flat_memory(self, transition: Transition):
         if not transition.in_memory:
             transition.in_memory = True
             if len(self.flat_transitions) == MEMORY_CAPACITY:
-                _old: Transition = self.flat_transitions.popleft() 
+                _old: Transition = self.flat_transitions.pop(0)
                 _old.in_memory = False
             self.flat_transitions.append(transition)
     

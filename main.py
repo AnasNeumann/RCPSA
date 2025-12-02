@@ -62,12 +62,12 @@ def diversify(memory: ITree, current_transition: Transition, possible_actions: l
         return torch.tensor([[action.id]], device=device, dtype=torch.long), action.lb, fail
     return None, -1, True
 
-def search_possible_actions(state: State, current_transition: Transition, best_Cmax: int, cut_bad_branches: bool = False) -> list[PossibleAction]:
+def search_possible_actions(state: State, memory: Memory, current_transition: Transition, best_Cmax: int, cut_bad_branches: bool = False) -> list[PossibleAction]:
     """
         Search for possible action, but also cut bad branches and update parent LB
     """
     if current_transition is not None:
-        current_transition.refine_from_possible_children(state.init_lb, cut_bad_branches=cut_bad_branches, best_Cmax=best_Cmax)
+        current_transition.refine_from_possible_children(memory, state.init_lb, cut_bad_branches=cut_bad_branches, best_Cmax=best_Cmax)
         return current_transition.possible_actions
     else:
         possible_actions: list[PossibleAction] = []
@@ -99,7 +99,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
     _EPSILON_TRACKER: Tracker              = Tracker(xlabel="Episode", ylabel="epsilon", title="Diversity rate", color="black", show=interactive)
     _REPLAY_MEMORY: Memory                 = Memory(device=_device)
     _TREE: ITree                           = _REPLAY_MEMORY.add_instance_if_new(instance_name=instance_name)
-    possible_actions: list[PossibleAction] = search_possible_actions(state=_best_state, current_transition=None, best_Cmax=Cmax, cut_bad_branches=False)
+    possible_actions: list[PossibleAction] = search_possible_actions(state=_best_state, memory=_REPLAY_MEMORY, current_transition=None, best_Cmax=Cmax, cut_bad_branches=False)
     _best_state.graph                      = _best_state.to_hyper_graph(possible_actions=possible_actions, transitions=_TREE.tree_transitions)
     for param in _POLICY_NET.parameters():
         if param.dim() > 1:
@@ -112,9 +112,9 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
         _e: float                                 = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * _episode / EPS_DECAY)
         transition: Transition                    = None
         _search_transition: bool                  = True
-        _cut_bad_branches: bool                   = _episode > 500
+        _cut_bad_branches: bool                   = _episode > 350
         _state: State                             = State.from_empty_solution(_best_state, _tasks, _resources)
-        possible_actions                          = search_possible_actions(state=_state, current_transition=None, best_Cmax=Cmax, cut_bad_branches=_cut_bad_branches)
+        possible_actions                          = search_possible_actions(state=_state, memory=_REPLAY_MEMORY, current_transition=None, best_Cmax=Cmax, cut_bad_branches=_cut_bad_branches)
         _state.graph                              = _state.to_hyper_graph(possible_actions=possible_actions, transitions=_TREE.tree_transitions)
         _transitions_in_episode: list[Transition] = []
         diversified_step: int = random.randint(0, len(_tasks)-1)
@@ -132,7 +132,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                 _search_transition = transition is not None
             _steps                += 1
             take_step(state=_state, action=_action_idx.item(), ub=_state.init_ub)
-            possible_actions       = search_possible_actions(state=_state, current_transition=transition, best_Cmax=Cmax, cut_bad_branches=_cut_bad_branches)
+            possible_actions       = search_possible_actions(state=_state, memory=_REPLAY_MEMORY, current_transition=transition, best_Cmax=Cmax, cut_bad_branches=_cut_bad_branches)
             if not possible_actions and not _state.done:
                 print(f"-> ERROR: No possible actions with lower bound < current best Cmax ({Cmax})!")
                 break
@@ -164,7 +164,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                     _best_state   = _state
                     _best_episode = _episode
                     Cmax          = _state.make_span
-                print(f"DQN Episode: {_episode} -- random_step: {diversified_step} -- Makespan: {_state.make_span} (best: {Cmax}) -- Є: {_e:.3f} -- Huber Loss: {huber_loss:.2f}")
+                print(f"DQN Episode: {_episode} -- random_step: {diversified_step} -- Makespan: {_state.make_span} (best: {Cmax}) -- Є: {_e:.3f} -- Huber Loss: {huber_loss:.2f} -- Memory size: {len(_REPLAY_MEMORY.flat_transitions)}")
 
                 # TIME TO FREE SOME MEMORY                
                 if _episode % 100 == 0 and _episode > 0:
