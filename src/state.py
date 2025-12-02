@@ -281,14 +281,15 @@ class State():
                 if transitions:
                     for transition in transitions:
                         if transition.action.item() == task["Id"]:
-                            cmaxs = np.array(transition.makespans)
-                            past_vector = [
-                                float(np.min(cmaxs) / self.init_ub),
-                                float(np.percentile(cmaxs, 25) / self.init_ub),
-                                float(np.median(cmaxs)/ self.init_ub),
-                                float(np.percentile(cmaxs, 75) / self.init_ub),
-                                float(np.max(cmaxs) / self.init_ub),
-                                math.log1p(transition.nb_visits)]
+                            if transition.makespans:
+                                cmaxs = np.array(transition.makespans)
+                                past_vector = [
+                                    float(np.min(cmaxs) / self.init_ub),
+                                    float(np.percentile(cmaxs, 25) / self.init_ub),
+                                    float(np.median(cmaxs)/ self.init_ub),
+                                    float(np.percentile(cmaxs, 75) / self.init_ub),
+                                    float(np.max(cmaxs) / self.init_ub),
+                                    math.log1p(transition.nb_visits)]
                             break
                 std_Lb: float        = 1.0
                 feasible_flag: float = 0.0

@@ -75,7 +75,9 @@ def search_possible_actions(state: State, memory: Memory, current_transition: Tr
         for task in feasible_tasks:
             with HypotheticalStep(state, task["Id"], state.init_ub) as step:
                 if step.success:
-                    possible_actions.append(PossibleAction(id=task["Id"], lb=state.compute_lower_bound()))
+                    lb: int = state.compute_lower_bound()
+                    if not cut_bad_branches or lb <= best_Cmax:
+                        possible_actions.append(PossibleAction(id=task["Id"], lb=lb))
         return possible_actions
 
 def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
@@ -111,13 +113,14 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
     for _episode in range(1, NB_EPISODES+1):
         _e: float                                 = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * _episode / EPS_DECAY)
         transition: Transition                    = None
+        found_a_good_branch: bool                 = True
         _search_transition: bool                  = True
         _cut_bad_branches: bool                   = _episode > 350
         _state: State                             = State.from_empty_solution(_best_state, _tasks, _resources)
         possible_actions                          = search_possible_actions(state=_state, memory=_REPLAY_MEMORY, current_transition=None, best_Cmax=Cmax, cut_bad_branches=_cut_bad_branches)
         _state.graph                              = _state.to_hyper_graph(possible_actions=possible_actions, transitions=_TREE.tree_transitions)
         _transitions_in_episode: list[Transition] = []
-        diversified_step: int = random.randint(0, len(_tasks)-1)
+        diversified_step: int = random.randint(1, len(_tasks)-1)
         for step in count():
             should_diversify: bool = _search_transition and (step == diversified_step)
             if should_diversify:
@@ -135,8 +138,9 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
             possible_actions       = search_possible_actions(state=_state, memory=_REPLAY_MEMORY, current_transition=transition, best_Cmax=Cmax, cut_bad_branches=_cut_bad_branches)
             if not possible_actions and not _state.done:
                 print(f"-> ERROR: No possible actions with lower bound < current best Cmax ({Cmax})!")
-                break
-            _next_graph: HeteroData = _state.to_hyper_graph(possible_actions=possible_actions, transitions=transition.next if transition is not None else [])
+                found_a_good_branch = False
+                _state.done         = True
+            _next_graph: HeteroData = _state.to_hyper_graph(possible_actions=possible_actions, transitions=transition.next if transition else [])
             _state.lower_bound      = LB
             if _transitions_in_episode:
                 _transitions_in_episode[-1].lb = min(_transitions_in_episode[-1].lb, LB)  
@@ -156,17 +160,24 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
             # END OF EPISODE
             if _state.done:
                 _EPSILON_TRACKER.update(_e)
-                _Cmax_TRACKER.update(_state.make_span)
-                _TREE.add_or_update_transition(transition=_transitions_in_episode[0], final_makespan=_state.make_span)
-                huber_loss: float = optimize_policy_net(memory=_REPLAY_MEMORY, policy_net=_POLICY_NET, target_net=_TARGET_NET, optimizer=_OPTIMIZER, tracker=_LOSS_TRACKER, nb_tasks=len(_tasks), device=_device)
-                optimize_target_net(policy_net=_POLICY_NET, target_net=_TARGET_NET)
-                if _state.make_span < Cmax:
-                    _best_state   = _state
-                    _best_episode = _episode
-                    Cmax          = _state.make_span
-                print(f"DQN Episode: {_episode} -- random_step: {diversified_step} -- Makespan: {_state.make_span} (best: {Cmax}) -- Є: {_e:.3f} -- Huber Loss: {huber_loss:.2f} -- Memory size: {len(_REPLAY_MEMORY.flat_transitions)}")
-
-                # TIME TO FREE SOME MEMORY                
+                if found_a_good_branch:
+                    _Cmax_TRACKER.update(_state.make_span)
+                    _TREE.add_or_update_transition(transition=_transitions_in_episode[0], final_makespan=_state.make_span)
+                    huber_loss: float = optimize_policy_net(memory=_REPLAY_MEMORY, policy_net=_POLICY_NET, target_net=_TARGET_NET, optimizer=_OPTIMIZER, tracker=_LOSS_TRACKER, nb_tasks=len(_tasks), device=_device)
+                    optimize_target_net(policy_net=_POLICY_NET, target_net=_TARGET_NET)
+                    if _state.make_span < Cmax:
+                        _best_state   = _state
+                        _best_episode = _episode
+                        Cmax          = _state.make_span
+                    print(f"DQN Episode: {_episode} -- random_step: {diversified_step} -- Makespan: {_state.make_span} (best: {Cmax}) -- Є: {_e:.3f} -- Huber Loss: {huber_loss:.2f} -- Memory size: {len(_REPLAY_MEMORY.flat_transitions)}")
+                else:
+                    _TREE.add_a_bad_branch(transition=_transitions_in_episode[0])
+                    if random.random() < 0.33:
+                        optimize_policy_net(memory=_REPLAY_MEMORY, policy_net=_POLICY_NET, target_net=_TARGET_NET, optimizer=_OPTIMIZER, tracker=_LOSS_TRACKER, nb_tasks=len(_tasks), device=_device)
+                        optimize_target_net(policy_net=_POLICY_NET, target_net=_TARGET_NET)
+                    print(f"UNFINISHED Episode: {_episode} -- random_step: {diversified_step} -- Final LB: {_state.lower_bound} (best: {Cmax}) -- Є: {_e:.3f} -- Memory size: {len(_REPLAY_MEMORY.flat_transitions)}")
+                
+                # TIME SAVE FILES AND FREE SOME MEMORY            
                 if _episode % 100 == 0 and _episode > 0:
                     gc.collect()
                     if torch.backends.mps.is_available():

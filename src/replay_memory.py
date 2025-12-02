@@ -5,7 +5,7 @@ from torch import Tensor
 from torch_geometric.data import HeteroData
 from torch._prims_common import DeviceLikeType
 
-from conf import MEMORY_CAPACITY, W_LB, W_FINAL
+from conf import MEMORY_CAPACITY, W_LB, W_FINAL, INFINITY
 
 # ====================================================
 # =*= Model file for GNN tree-shaped replay memory =*=
@@ -26,7 +26,7 @@ class Transition:
     """
         One transition in the DRL MEMORY TREE
     """
-    def __init__(self, action: Tensor, previous_graph: HeteroData, graph: HeteroData, lb: int, delta_lb: int, possible_actions: list[PossibleAction], parent=None):
+    def __init__(self, action: Tensor, previous_graph: HeteroData, graph: HeteroData, lb: int, delta_lb: int, possible_actions: list[PossibleAction], parent: 'Transition' = None):
         self.action: Tensor               = action
         self.graph: HeteroData            = graph.clone().to('cpu')
         self.delta_lb: int                = delta_lb
@@ -115,6 +115,37 @@ class ITree:
         for _next in transition.next:
             self.compute_rewards(transition=_next, final_makespan=final_makespan)
 
+    def add_a_bad_branch(self, transition: Transition) -> Transition:
+        transition.reward    = torch.tensor([-INFINITY], device=self.device)
+        transition.makespan  = INFINITY
+        transition.nb_visits = 1
+        if transition.parent is None:
+            _found: bool = False
+            for _other_first in self.tree_transitions:
+                if _other_first.same(transition):
+                    _found = True
+                    _other_first.nb_visits += 1
+                    for _next in transition.next:
+                        _next.parent = _other_first
+                        self.add_a_bad_branch(transition=_next)
+                    return _other_first
+            if not _found:
+                self.tree_transitions.append(transition)
+                return transition
+        else:
+            _found: bool = False
+            for _existing in transition.parent.next:
+                if _existing.same(transition):
+                    _found = True
+                    _existing.nb_visits += 1
+                    for _next in transition.next:
+                        _next.parent = _existing
+                        self.add_a_bad_branch(transition=_next)
+                    return _existing
+            if not _found:
+                transition.parent.next.append(transition)
+                return transition
+
     def add_or_update_transition(self, transition: Transition, final_makespan: int, need_rewards: bool=True) -> Transition:
         if need_rewards:
             self.compute_rewards(transition=transition, final_makespan=final_makespan)
@@ -149,16 +180,18 @@ class ITree:
                     return _existing
             if not _found:
                 transition.parent.next.append(transition)
-                _t: Transition = transition.parent
+                _t_up: Transition = transition.parent
+                _t_down: Transition = transition
                 while True:
-                    if not _t.parent:
+                    self.global_memory.add_into_flat_memory(_t_up)
+                    if _t_up.parent is None:
                         break
-                    _t = _t.parent
+                    _t_up = _t_up.parent
                 while True:
-                    self.global_memory.add_into_flat_memory(_t)
-                    if not _t.next:
+                    self.global_memory.add_into_flat_memory(_t_down)
+                    if not _t_down.next:
                         break
-                    _t = _t.next[0]
+                    _t_down = _t_down.next[0]
                 return transition
 
 class Memory:
@@ -174,7 +207,6 @@ class Memory:
 
     def add_into_flat_memory(self, transition: Transition):
         if not transition.in_memory:
-            transition.in_memory = True
             if len(self.flat_transitions) == MEMORY_CAPACITY:
                 _old: Transition = self.flat_transitions.pop(0)
                 _old.in_memory = False
