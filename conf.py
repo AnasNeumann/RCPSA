@@ -16,6 +16,7 @@ ATTENTION_HEADS: int     = 4
 GNN_STACK_SIZE: int      = 2
 DROPOUT_RATE: float      = 0.15
 
+MIN_MEMORY_CAPACITY: int = 30_000
 MEMORY_CAPACITY: int     = 60_000 # number of transitions in the replay memory
 NB_EPISODES: int         = 10_000 # number of training/solving episodes
 BATCH_SIZE: int          = 256    # size of each batch sampled from the replay memory

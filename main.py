@@ -12,7 +12,7 @@ from torch import Tensor
 from torch.optim import AdamW
 from torch_geometric.data import HeteroData
 
-from conf import INTERACTIVE, LR, NB_EPISODES, EPS_DECAY, EPS_END, EPS_START, GREEDY_RATE, TOP_K, INFINITY
+from conf import INTERACTIVE, LR, NB_EPISODES, EPS_DECAY, EPS_END, EPS_START, GREEDY_RATE, TOP_K, INFINITY, MIN_MEMORY_CAPACITY
 from src.common import display_final_computing_time
 from src.state import State
 from src.neural_nets import HyperGraphGNN
@@ -115,7 +115,7 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
         transition: Transition                    = None
         found_a_good_branch: bool                 = True
         _search_transition: bool                  = True
-        _cut_bad_branches: bool                   = _episode > 350
+        _cut_bad_branches: bool                   = len(_REPLAY_MEMORY.flat_transitions) >= MIN_MEMORY_CAPACITY
         _state: State                             = State.from_empty_solution(_best_state, _tasks, _resources)
         possible_actions                          = search_possible_actions(state=_state, memory=_REPLAY_MEMORY, current_transition=None, best_Cmax=Cmax, cut_bad_branches=_cut_bad_branches)
         _state.graph                              = _state.to_hyper_graph(possible_actions=possible_actions, transitions=_TREE.tree_transitions)
