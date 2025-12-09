@@ -11,8 +11,9 @@ import torch
 from torch import Tensor
 from torch.optim import AdamW
 from torch_geometric.data import HeteroData
-
-from conf import INTERACTIVE, LR, NB_EPISODES, EPS_DECAY, EPS_END, EPS_START, GREEDY_RATE, TOP_K, INFINITY, MIN_MEMORY_CAPACITY
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+    
+from conf import INTERACTIVE, LR, NB_EPISODES, EPS_DECAY, EPS_END, EPS_START, GREEDY_RATE, TOP_K, INFINITY, PATIENCE
 from src.common import display_final_computing_time
 from src.state import State
 from src.neural_nets import HyperGraphGNN
@@ -110,12 +111,13 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
     _POLICY_NET.train()
     _TARGET_NET.eval()
     _OPTIMIZER: AdamW = AdamW(_POLICY_NET.parameters(), lr=LR, amsgrad=True)
+    _SCHEDULER: ReduceLROnPlateau = ReduceLROnPlateau(_OPTIMIZER, mode='min', factor=0.5, patience=PATIENCE, verbose=True, min_lr=2e-6)
     for _episode in range(1, NB_EPISODES+1):
         _e: float                                 = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * _episode / EPS_DECAY)
         transition: Transition                    = None
         found_a_good_branch: bool                 = True
         _search_transition: bool                  = True
-        _cut_bad_branches: bool                   = len(_REPLAY_MEMORY.flat_transitions) >= MIN_MEMORY_CAPACITY
+        _cut_bad_branches: bool                   = False # len(_REPLAY_MEMORY.flat_transitions) >= MIN_MEMORY_CAPACITY
         _state: State                             = State.from_empty_solution(_best_state, _tasks, _resources)
         possible_actions                          = search_possible_actions(state=_state, memory=_REPLAY_MEMORY, current_transition=None, best_Cmax=Cmax, cut_bad_branches=_cut_bad_branches)
         _state.graph                              = _state.to_hyper_graph(possible_actions=possible_actions, transitions=_TREE.tree_transitions)
@@ -163,21 +165,21 @@ def solve(path: str, instance_type: str, instance_name: str, interactive: bool):
                 if found_a_good_branch:
                     _Cmax_TRACKER.update(_state.make_span)
                     _TREE.add_or_update_transition(transition=_transitions_in_episode[0], final_makespan=_state.make_span)
-                    huber_loss: float = optimize_policy_net(memory=_REPLAY_MEMORY, policy_net=_POLICY_NET, target_net=_TARGET_NET, optimizer=_OPTIMIZER, tracker=_LOSS_TRACKER, nb_tasks=len(_tasks), device=_device)
+                    huber_loss: float = optimize_policy_net(memory=_REPLAY_MEMORY, policy_net=_POLICY_NET, scheduler=_SCHEDULER, target_net=_TARGET_NET, optimizer=_OPTIMIZER, tracker=_LOSS_TRACKER, nb_tasks=len(_tasks), device=_device)
                     optimize_target_net(policy_net=_POLICY_NET, target_net=_TARGET_NET)
                     if _state.make_span < Cmax:
                         _best_state   = _state
                         _best_episode = _episode
                         Cmax          = _state.make_span
-                    print(f"DQN Episode: {_episode} -- random_step: {diversified_step} -- Makespan: {_state.make_span} (best: {Cmax}) -- Є: {_e:.3f} -- Huber Loss: {huber_loss:.2f} -- Memory size: {len(_REPLAY_MEMORY.flat_transitions)}")
+                    print(f"DQN Episode: {_episode} -- random_step: {diversified_step} -- Makespan: {_state.make_span} (best: {Cmax}) -- Є: {_e:.3f} -- Huber Loss: {huber_loss:.2f} - LR: {_OPTIMIZER.param_groups[0]['lr']:.2e}")
                 else:
                     _TREE.add_a_bad_branch(transition=_transitions_in_episode[0])
                     if random.random() < 0.33:
                         optimize_policy_net(memory=_REPLAY_MEMORY, policy_net=_POLICY_NET, target_net=_TARGET_NET, optimizer=_OPTIMIZER, tracker=_LOSS_TRACKER, nb_tasks=len(_tasks), device=_device)
                         optimize_target_net(policy_net=_POLICY_NET, target_net=_TARGET_NET)
-                    print(f"UNFINISHED Episode: {_episode} -- random_step: {diversified_step} -- Final LB: {_state.lower_bound} (best: {Cmax}) -- Є: {_e:.3f} -- Memory size: {len(_REPLAY_MEMORY.flat_transitions)}")
+                    print(f"UNFINISHED Episode: {_episode} -- random_step: {diversified_step} -- Final LB: {_state.lower_bound} (best: {Cmax}) -- Є: {_e:.3f}")
                 
-                # TIME SAVE FILES AND FREE SOME MEMORY            
+                # TIME SAVE FILES AND FREE SOME MEMORY
                 if _episode % 100 == 0 and _episode > 0:
                     gc.collect()
                     if torch.backends.mps.is_available():
